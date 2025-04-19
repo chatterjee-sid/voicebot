@@ -6,7 +6,7 @@ import 'core/theme.dart';
 import 'providers/app_state.dart';
 
 // Global flag to quickly identify if we're running on Windows
-// This helps conditionally disable problematic native features
+// NOTE: Audio recording should now work on Windows with the updated implementation
 final bool isRunningOnWindows = Platform.isWindows;
 
 void main() {
@@ -28,9 +28,9 @@ void main() {
     );
   }
 
-  // Show a platform-specific warning if running on Windows
+  // Show a platform-specific message indicating Windows support
   if (isRunningOnWindows) {
-    debugPrint('Running on Windows - some features will be limited');
+    debugPrint('Running on Windows - audio recording should now be supported');
   }
 
   runApp(const VoiceControlApp());
@@ -57,6 +57,7 @@ class _VoiceControlAppState extends State<VoiceControlApp> {
           title: 'Voice-Controlled Robot',
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
+          // Always use dark theme by default
           themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
           home: const SplashScreen(),
           debugShowCheckedModeBanner: false,

@@ -1,9 +1,21 @@
 import 'package:flutter/material.dart';
-import '../models/command_model.dart';
+
+// Define the VoiceLanguage enum here if it doesn't exist in command_model.dart
+enum VoiceLanguage {
+  english(code: 'en', displayName: 'English'),
+  hindi(code: 'hi', displayName: 'Hindi'),
+  gujarati(code: 'gu', displayName: 'Gujarati');
+
+  const VoiceLanguage({required this.code, required this.displayName});
+
+  final String code;
+  final String displayName;
+}
 
 class AppStateProvider with ChangeNotifier {
   // Language state
   VoiceLanguage _selectedLanguage = VoiceLanguage.english;
+  // Default to true for dark mode
   bool _isDarkMode = true;
   String _lastCommand = '';
   bool _isConnectedToRobot = false;

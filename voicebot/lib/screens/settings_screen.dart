@@ -1,87 +1,52 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/app_state.dart';
 import '../models/command_model.dart';
-import '../services/api_service.dart';
-import '../services/bluetooth_service.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({Key? key}) : super(key: key);
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // Get the single instance of AppState
+  // Reference to global app state
   final appState = AppState();
 
-  bool isCheckingServer = false;
-  bool isServerReachable = false;
-  final serverUrlController = TextEditingController();
+  // Local settings
+  late VoiceLanguage _selectedLanguage;
+  bool _isDarkMode = false;
+  bool _showDebugInfo = false;
 
   @override
   void initState() {
     super.initState();
-    // Initialize text controllers with current model URLs
-    serverUrlController.text = ApiService.baseUrl;
+    _loadSettings();
   }
 
-  @override
-  void dispose() {
-    serverUrlController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _checkServerConnection() async {
+  Future<void> _loadSettings() async {
     setState(() {
-      isCheckingServer = true;
+      // Load language from app state
+      _selectedLanguage = appState.selectedLanguage.value;
+
+      // Load dark mode setting
+      _isDarkMode = appState.isDarkMode.value;
+
+      // Load debug info setting
+      _showDebugInfo = appState.showDebugInfo.value;
     });
-
-    try {
-      final isReachable = await ApiService.checkServerStatus();
-      setState(() {
-        isServerReachable = isReachable;
-        isCheckingServer = false;
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: SelectableText(
-              isReachable
-                  ? 'Server is reachable and ready to process commands'
-                  : 'Could not reach server. Please check the URL and try again',
-            ),
-            backgroundColor: isReachable ? Colors.green : Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          isCheckingServer = false;
-          isServerReachable = false;
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: SelectableText('Error connecting to server: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
   }
 
-  Future<void> _disconnectBluetooth() async {
-    await BluetoothService.disconnect();
+  Future<void> _saveSettings() async {
+    // Save settings to app state
+    appState.setLanguage(_selectedLanguage);
+    appState.setDarkMode(_isDarkMode);
+    appState.setDebugInfoVisibility(_showDebugInfo);
 
-    // Update app state
-    appState.setRobotConnection(false);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: SelectableText('Bluetooth disconnected')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Settings saved')));
   }
 
   @override
@@ -90,210 +55,100 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Settings'),
-            Text(
-              'Developed by Group2 SVNIT',
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontSize: 10,
-                color: theme.colorScheme.onPrimary.withOpacity(0.8),
-              ),
-            ),
-          ],
-        ),
+        title: const Text('Settings'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.save),
+            onPressed: _saveSettings,
+            tooltip: 'Save Settings',
+          ),
+        ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
         children: [
-          // Language Section
-          Card(
-            elevation: 2,
-            margin: const EdgeInsets.only(bottom: 16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Voice Language', style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 16),
-                  const SelectableText(
-                    'Select the language for voice commands:',
-                  ),
-                  const SizedBox(height: 8),
-                  ValueListenableBuilder<VoiceLanguage>(
-                    valueListenable: appState.selectedLanguage,
-                    builder: (context, selectedLanguage, child) {
-                      return Column(
-                        children:
-                            VoiceLanguage.values
-                                .map(
-                                  (language) => RadioListTile<VoiceLanguage>(
-                                    title: Text(language.displayName),
-                                    value: language,
-                                    groupValue: selectedLanguage,
-                                    onChanged: (VoiceLanguage? value) {
-                                      if (value != null) {
-                                        appState.setLanguage(value);
-                                      }
-                                    },
-                                  ),
-                                )
-                                .toList(),
-                      );
-                    },
-                  ),
-                  const Divider(),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8.0),
-                    child: SelectableText(
-                      'Note: Hindi and Gujarati may have higher latency and lower accuracy.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontStyle: FontStyle.italic,
-                      ),
+          // Language Settings
+          ListTile(
+            title: const Text('Language'),
+            subtitle: const Text('Select voice command language'),
+            trailing: DropdownButton<VoiceLanguage>(
+              value: _selectedLanguage,
+              onChanged: (newValue) {
+                if (newValue != null) {
+                  setState(() {
+                    _selectedLanguage = newValue;
+                  });
+                }
+              },
+              items:
+                  VoiceLanguage.values.map((language) {
+                    return DropdownMenuItem<VoiceLanguage>(
+                      value: language,
+                      child: Text(language.displayName),
+                    );
+                  }).toList(),
+            ),
+          ),
+
+          const Divider(),
+
+          // Theme Setting - change the label to reflect dark mode is primary
+          SwitchListTile(
+            title: const Text('Dark Mode'),
+            subtitle: const Text('Enable dark theme (recommended)'),
+            value: _isDarkMode,
+            onChanged: (value) {
+              setState(() {
+                _isDarkMode = value;
+              });
+              // This would normally also update the app theme
+            },
+          ),
+
+          // Debug Info Setting
+          SwitchListTile(
+            title: const Text('Show Debug Information'),
+            subtitle: const Text(
+              'Display technical details for troubleshooting',
+            ),
+            value: _showDebugInfo,
+            onChanged: (value) {
+              setState(() {
+                _showDebugInfo = value;
+              });
+            },
+          ),
+
+          const Divider(),
+
+          // About section
+          const ListTile(
+            title: Text('About'),
+            subtitle: Text('Voice-Controlled Robot v1.0.0'),
+          ),
+
+          ListTile(
+            title: const Text('Developed by'),
+            subtitle: const Text('Group2 SVNIT'),
+            trailing: IconButton(
+              icon: const Icon(Icons.info_outline),
+              onPressed: () {
+                showAboutDialog(
+                  context: context,
+                  applicationName: 'Voice-Controlled Robot',
+                  applicationVersion: '1.0.0',
+                  applicationIcon: const FlutterLogo(size: 50),
+                  children: const [
+                    Text(
+                      'A voice-controlled robot application that uses speech recognition to convert voice commands into robot movements.',
                     ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // Backend Server Settings
-          Card(
-            elevation: 2,
-            margin: const EdgeInsets.only(bottom: 16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Backend Server', style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 16),
-                  const SelectableText(
-                    'Configure the backend server settings:',
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: serverUrlController,
-                    decoration: InputDecoration(
-                      labelText: 'Server URL',
-                      hintText: 'https://your-ngrok-url.ngrok.io',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.save),
-                        onPressed: () {
-                          // Would normally save this to persistent storage
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: SelectableText('Server URL updated'),
-                            ),
-                          );
-                        },
-                      ),
+                    SizedBox(height: 10),
+                    Text(
+                      'Developed by Group2 of SVNIT as part of the App Development project.',
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton.icon(
-                    onPressed: isCheckingServer ? null : _checkServerConnection,
-                    icon:
-                        isCheckingServer
-                            ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                            : const Icon(Icons.cloud_done),
-                    label: Text(
-                      isCheckingServer ? 'Checking...' : 'Test Connection',
-                    ),
-                  ),
-                ],
-              ),
+                  ],
+                );
+              },
             ),
-          ),
-
-          // Bluetooth Settings
-          Card(
-            elevation: 2,
-            margin: const EdgeInsets.only(bottom: 16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Robot Connection', style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 16),
-                  ValueListenableBuilder<bool>(
-                    valueListenable: appState.isConnectedToRobot,
-                    builder: (context, isConnected, child) {
-                      return ListTile(
-                        leading: Icon(
-                          isConnected
-                              ? Icons.bluetooth_connected
-                              : Icons.bluetooth_disabled,
-                          color: isConnected ? theme.colorScheme.primary : null,
-                        ),
-                        title: const Text('Bluetooth Connection'),
-                        subtitle: SelectableText(
-                          isConnected
-                              ? 'Connected to robot'
-                              : 'Not connected to any device',
-                        ),
-                        trailing:
-                            isConnected
-                                ? ElevatedButton(
-                                  onPressed: _disconnectBluetooth,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.red,
-                                  ),
-                                  child: const Text('Disconnect'),
-                                )
-                                : null,
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // App Theme Settings
-          Card(
-            elevation: 2,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Appearance', style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 16),
-                  ValueListenableBuilder<bool>(
-                    valueListenable: appState.isDarkMode,
-                    builder: (context, isDarkMode, child) {
-                      return SwitchListTile(
-                        title: const Text('Dark Mode'),
-                        subtitle: const Text('Use dark theme'),
-                        value: isDarkMode,
-                        onChanged: (_) => appState.toggleTheme(),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // App Info
-          const SizedBox(height: 20),
-          Center(
-            child: SelectableText(
-              'Voice-Controlled Driving Robot',
-              style: theme.textTheme.titleMedium,
-            ),
-          ),
-          Center(
-            child: SelectableText('v1.0.0', style: theme.textTheme.bodySmall),
           ),
         ],
       ),

@@ -1,14 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_spinkit/flutter_spinkit.dart';
-import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
-import '../services/api_service.dart';
-import '../services/bluetooth_service.dart';
+import 'package:provider/provider.dart';
+import '../providers/app_state.dart';
 import '../services/audio_recorder.dart';
-import 'bluetooth_device_selection_screen.dart';
+import '../services/api_service.dart';
+import '../widgets/audio_visualizer.dart';
+import '../widgets/custom_button.dart';
 
 class RobotControlScreen extends StatefulWidget {
   const RobotControlScreen({super.key});
@@ -17,522 +15,368 @@ class RobotControlScreen extends StatefulWidget {
   State<RobotControlScreen> createState() => _RobotControlScreenState();
 }
 
-class _RobotControlScreenState extends State<RobotControlScreen> {
+class _RobotControlScreenState extends State<RobotControlScreen> with SingleTickerProviderStateMixin {
   bool _isRecording = false;
-  String _audioPath = '';
-  String _commandResult = '';
   bool _isProcessing = false;
-  String _selectedLanguage = 'en'; // Default to English
-  bool _isConnected = false;
   String _lastCommand = '';
-  String _connectedDeviceName = 'No device connected';
-  Timer? _recordingTimer;
-  double _currentVolume = 0.0;
-  Duration _recordingDuration = Duration.zero;
+  String _response = '';
+  bool _isPressing = false;
+  double _volumeLevel = 0.0;
+  Timer? _volumeTimer;
+  final ApiService _apiService = ApiService();
+  
+  // Animation controller for recording feedback
+  late AnimationController _animationController;
+  
+  // Fixed position for record button to prevent it from moving
+  final recordButtonPosition = const Offset(0, 0);
 
   @override
   void initState() {
     super.initState();
-    _loadSettings();
-    _checkPermissions();
-    _initBluetooth();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
   }
 
-  Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _selectedLanguage = prefs.getString('language') ?? 'en';
-    });
+  @override
+  void dispose() {
+    _volumeTimer?.cancel();
+    _animationController.dispose();
+    super.dispose();
   }
 
-  Future<void> _checkPermissions() async {
-    await AudioRecorderService.checkMicrophonePermission();
-  }
-
-  Future<void> _initBluetooth() async {
-    try {
-      final isEnabled = await BluetoothService.initBluetooth();
-      setState(() {
-        _isConnected = BluetoothService.isConnected;
-        _connectedDeviceName =
-            _isConnected ? 'Connected Device' : 'No device connected';
-      });
-    } catch (e) {
-      setState(() {
-        _isConnected = false;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to initialize Bluetooth: ${e.toString()}'),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _selectBluetoothDevice() async {
-    try {
-      // Navigate to Bluetooth device selection screen using a direct route
-      // instead of a named route that might not be defined
-      final result = await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const BluetoothDeviceSelectionScreen(),
-        ),
-      );
-
-      // Check if result is a BluetoothDevice before processing
-      if (result != null && result is BluetoothDevice) {
-        // Connect to the selected device
-        final BluetoothDevice device = result;
-        final isConnected = await BluetoothService.connectToDevice(device);
-
-        setState(() {
-          _isConnected = isConnected;
-          _connectedDeviceName =
-              isConnected
-                  ? device.name ?? 'Connected Device'
-                  : 'No device connected';
-        });
-
-        if (_isConnected && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Connected to $_connectedDeviceName')),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error selecting device: ${e.toString()}')),
-        );
-      }
-    }
-  }
-
+  // Start recording with better state management
   Future<void> _startRecording() async {
+    if (_isRecording || _isProcessing) return;
+
+    // Check microphone permission
+    final hasPermission = await AudioRecorderService.checkMicrophonePermission();
+    if (!hasPermission) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Microphone permission is required to record audio')),
+        );
+      }
+      return;
+    }
+
+    // Set recording state before attempting to start
+    setState(() {
+      _isPressing = true;
+      _response = '';
+    });
+
     try {
+      // Start recording
       final success = await AudioRecorderService.startRecording();
-
+      
       if (success) {
-        setState(() {
-          _isRecording = true;
-          _commandResult = '';
-        });
-
-        // Start timer to update UI
-        _recordingTimer = Timer.periodic(const Duration(milliseconds: 100), (
-          timer,
-        ) {
-          if (mounted) {
-            setState(() {
-              _currentVolume = AudioRecorderService.currentVolume;
-              _recordingDuration = AudioRecorderService.recordingDuration;
-            });
-          }
-        });
+        if (mounted) {
+          setState(() {
+            _isRecording = true;
+            _lastCommand = '';
+          });
+        }
+        
+        // Start monitoring volume for visualization
+        _startVolumeMonitoring();
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Failed to start recording')),
           );
+          setState(() {
+            _isPressing = false;
+          });
         }
       }
     } catch (e) {
-      debugPrint('Error starting recording: ${e.toString()}');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to start recording: ${e.toString()}')),
+          SnackBar(content: Text('Error starting recording: $e')),
         );
+        setState(() {
+          _isPressing = false;
+        });
       }
     }
   }
 
+  // Stop recording with better error handling
   Future<void> _stopRecording() async {
-    _recordingTimer?.cancel();
-    _recordingTimer = null;
+    if (!_isRecording) return;
 
     try {
       setState(() {
-        _isRecording = false;
         _isProcessing = true;
       });
+      
+      // Stop volume monitoring
+      _volumeTimer?.cancel();
+      _volumeTimer = null;
 
-      final path = await AudioRecorderService.stopRecording();
-
-      if (path != null) {
-        setState(() {
-          _audioPath = path;
-        });
-        await _processAudio();
+      // Stop recording
+      final recordingPath = await AudioRecorderService.stopRecording();
+      
+      if (recordingPath != null) {
+        final file = File(recordingPath);
+        if (await file.exists()) {
+          await _processRecording(file);
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Recording file not found')),
+            );
+          }
+        }
       } else {
-        setState(() {
-          _isProcessing = false;
-          _commandResult = 'Recording failed';
-        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to stop recording')),
+          );
+        }
       }
     } catch (e) {
-      setState(() {
-        _isRecording = false;
-        _isProcessing = false;
-      });
-
-      debugPrint('Error stopping recording: ${e.toString()}');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to process recording: ${e.toString()}'),
-          ),
+          SnackBar(content: Text('Error stopping recording: $e')),
         );
       }
-    }
-  }
-
-  Future<void> _processAudio() async {
-    try {
-      if (_audioPath.isEmpty) {
-        setState(() {
-          _isProcessing = false;
-          _commandResult = 'No audio recorded';
-        });
-        return;
-      }
-
-      final file = File(_audioPath);
-      if (!await file.exists()) {
-        setState(() {
-          _isProcessing = false;
-          _commandResult = 'Audio file not found';
-        });
-        return;
-      }
-
-      final command = await ApiService.processAudioCommand(
-        _audioPath,
-        _selectedLanguage,
-      );
-
-      setState(() {
-        _isProcessing = false;
-        _commandResult = command;
-        _lastCommand = command;
-      });
-
-      if (_isConnected) {
-        await _sendCommandToRobot(command);
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              'No device connected. Connect a device to control the robot.',
-            ),
-            action: SnackBarAction(
-              label: 'CONNECT',
-              onPressed: () => _selectBluetoothDevice(),
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      setState(() {
-        _isProcessing = false;
-        _commandResult = 'Error: ${e.toString()}';
-      });
-    }
-  }
-
-  Future<void> _sendCommandToRobot(String command) async {
-    try {
-      await BluetoothService.sendCommand(command);
-    } catch (e) {
-      setState(() {
-        _isConnected = false;
-      });
+    } finally {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send command: ${e.toString()}')),
-        );
+        setState(() {
+          _isRecording = false;
+          _isPressing = false;
+          _isProcessing = false;
+          _volumeLevel = 0.0;
+        });
       }
     }
   }
 
-  @override
-  void dispose() {
-    _recordingTimer?.cancel();
-    AudioRecorderService.dispose();
-    super.dispose();
+  void _startVolumeMonitoring() {
+    // Cancel any existing timer
+    _volumeTimer?.cancel();
+    
+    // Start a new timer to update the volume level
+    _volumeTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (mounted && _isRecording) {
+        setState(() {
+          _volumeLevel = AudioRecorderService.currentVolume;
+        });
+      }
+    });
+  }
+
+  Future<void> _processRecording(File recordingFile) async {
+    try {
+      // Process the recording
+      final result = await _apiService.processAudioCommand(recordingFile);
+      
+      if (mounted) {
+        setState(() {
+          _lastCommand = result['command'] ?? 'No command detected';
+          _response = result['response'] ?? 'No response received';
+          _isProcessing = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _lastCommand = 'Error processing command';
+          _response = 'Error: $e';
+          _isProcessing = false;
+        });
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final appState = Provider.of<AppState>(context);
+    final theme = Theme.of(context);
+    
     return Scaffold(
       appBar: AppBar(
         title: const Text('Robot Control'),
-        centerTitle: true,
         actions: [
           IconButton(
-            icon: Icon(
-              _isConnected
-                  ? Icons.bluetooth_connected
-                  : Icons.bluetooth_disabled,
-              color: _isConnected ? Colors.green : Colors.red,
-            ),
-            onPressed: _selectBluetoothDevice,
-            tooltip:
-                _isConnected
-                    ? 'Connected to $_connectedDeviceName'
-                    : 'Connect to robot',
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.pushNamed(context, '/settings');
+            },
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      body: SafeArea(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Language and device indicator
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Language indicator
-                Card(
-                  elevation: 0,
-                  color: Theme.of(context).colorScheme.surfaceVariant,
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.language, size: 20),
-                        const SizedBox(width: 8),
-                        Text(
-                          _selectedLanguage,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
+            // Status Section
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: appState.isConnected ? Colors.green : Colors.red,
+                      shape: BoxShape.circle,
                     ),
                   ),
-                ),
-
-                const SizedBox(width: 8),
-
-                // Device indicator
-                Card(
-                  elevation: 0,
-                  color: Theme.of(context).colorScheme.surfaceVariant,
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _isConnected
-                              ? Icons.bluetooth_connected
-                              : Icons.bluetooth_disabled,
-                          size: 20,
-                          color: _isConnected ? Colors.green : Colors.red,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _isConnected
-                              ? _connectedDeviceName.length > 15
-                                  ? '${_connectedDeviceName.substring(0, 12)}...'
-                                  : _connectedDeviceName
-                              : 'Not connected',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            color: _isConnected ? Colors.green : Colors.red,
-                          ),
-                        ),
-                      ],
-                    ),
+                  const SizedBox(width: 8),
+                  Text(
+                    appState.isConnected
+                        ? 'Connected to ${appState.connectedDeviceName}'
+                        : 'Not connected',
+                    style: theme.textTheme.bodyLarge,
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-
-            const SizedBox(height: 24),
-
-            // Voice command section
+            
+            // Main Content Area
             Expanded(
-              child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Record button
-                    GestureDetector(
-                      onTapDown: (_) => _startRecording(),
-                      onTapUp: (_) => _stopRecording(),
-                      onTapCancel: () => _stopRecording(),
-                      child: Container(
-                        width: 120,
-                        height: 120,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color:
-                              _isRecording
-                                  ? Colors.red
-                                  : Theme.of(context).colorScheme.primary,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.2),
-                              blurRadius: 10,
-                              offset: const Offset(0, 5),
-                            ),
-                          ],
-                        ),
-                        child: Center(
-                          child:
-                              _isRecording
-                                  ? const SpinKitPulse(
-                                    color: Colors.white,
-                                    size: 80.0,
-                                  )
-                                  : const Icon(
-                                    Icons.mic,
-                                    size: 48,
-                                    color: Colors.white,
-                                  ),
+                    // Last Command Section
+                    if (_lastCommand.isNotEmpty)
+                      Card(
+                        elevation: 2,
+                        margin: const EdgeInsets.only(bottom: 16),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Last Command:',
+                                style: theme.textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(_lastCommand),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // Instruction text
-                    Text(
-                      _isRecording
-                          ? 'Release to send command'
-                          : 'Press and hold to speak',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    
+                    // Response Section
+                    if (_response.isNotEmpty)
+                      Card(
+                        elevation: 2,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Response:',
+                                style: theme.textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(_response),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
             ),
-
-            // Command result section
+            
+            // Bottom Controls Section - fixed height to prevent jumping
             Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceVariant,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Command Result:',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  _isProcessing
-                      ? const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(8.0),
-                          child: CircularProgressIndicator(),
+              height: 200, // Fixed height for the bottom controls
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Audio Visualizer (only shown when recording)
+                    if (_isRecording)
+                      SizedBox(
+                        height: 60,
+                        child: AudioVisualizer(
+                          volume: _volumeLevel,
+                          color: theme.colorScheme.primary,
+                          animationController: _animationController,
                         ),
+                      ),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // Recording Status Text
+                    Text(
+                      _isRecording 
+                          ? 'Listening...' 
+                          : _isProcessing 
+                              ? 'Processing...' 
+                              : 'Press and hold to speak',
+                      style: theme.textTheme.bodyLarge,
+                    ),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // Record Button (or Stop Button when recording)
+                    if (_isRecording) 
+                      // Stop Recording Button
+                      CustomButton(
+                        onPressed: _stopRecording,
+                        icon: Icons.stop,
+                        text: 'Stop',
+                        color: Colors.red,
+                        isLoading: _isProcessing,
                       )
-                      : Center(
-                        child: Text(
-                          _commandResult.isEmpty
-                              ? 'Waiting for command...'
-                              : _commandResult,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
+                    else
+                      // Start Recording Button with better gesture handling
+                      GestureDetector(
+                        onLongPress: _startRecording,
+                        onLongPressEnd: (_) {
+                          if (_isRecording) {
+                            _stopRecording();
+                          }
+                          setState(() {
+                            _isPressing = false;
+                          });
+                        },
+                        onLongPressCancel: () {
+                          setState(() {
+                            _isPressing = false;
+                          });
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 100),
+                          width: _isPressing ? 100 : 80,
+                          height: _isPressing ? 100 : 80,
+                          decoration: BoxDecoration(
+                            color: _isPressing
+                                ? theme.colorScheme.primary.withOpacity(0.7)
+                                : theme.colorScheme.primary,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.2),
+                                blurRadius: 10,
+                                offset: const Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            Icons.mic,
+                            color: Colors.white,
+                            size: _isPressing ? 50 : 40,
                           ),
                         ),
                       ),
-                ],
+                  ],
+                ),
               ),
             ),
-
-            const SizedBox(height: 16),
-
-            // Control pad (for manual control)
-            if (_isConnected)
-              Card(
-                elevation: 4,
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      const Text(
-                        'Manual Control',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          ElevatedButton(
-                            onPressed: () => _sendCommandToRobot('Forward'),
-                            child: const Icon(Icons.arrow_upward),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          ElevatedButton(
-                            onPressed: () => _sendCommandToRobot('Left'),
-                            child: const Icon(Icons.arrow_back),
-                          ),
-                          const SizedBox(width: 16),
-                          ElevatedButton(
-                            onPressed: () => _sendCommandToRobot('Stop'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text('STOP'),
-                          ),
-                          const SizedBox(width: 16),
-                          ElevatedButton(
-                            onPressed: () => _sendCommandToRobot('Right'),
-                            child: const Icon(Icons.arrow_forward),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          ElevatedButton(
-                            onPressed: () => _sendCommandToRobot('Backward'),
-                            child: const Icon(Icons.arrow_downward),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-            if (!_isConnected)
-              ElevatedButton.icon(
-                onPressed: _selectBluetoothDevice,
-                icon: const Icon(Icons.bluetooth_searching),
-                label: const Text('CONNECT TO ROBOT'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                ),
-              ),
           ],
         ),
       ),

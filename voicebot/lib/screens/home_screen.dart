@@ -87,7 +87,7 @@ class _HomeScreenState extends State<HomeScreen>
     });
 
     try {
-      final results = await AudioRecorderService.runMicrophoneDiagnostics();
+      final results = await AudioRecorderService.runDiagnostics();
 
       setState(() {
         _diagnosticResults = results;
@@ -139,7 +139,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     BluetoothService.startDiscovery((foundDevices) {
       setState(() {
-        devices = foundDevices.where((device) => device != null).toList();
+        devices = foundDevices.toList();
       });
     });
 
@@ -325,6 +325,102 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    // If diagnostics view is shown, create a completely separate UI for it
+    if (_showDiagnostics) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Microphone Diagnostics'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              setState(() {
+                _showDiagnostics = false;
+              });
+            },
+          ),
+        ),
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Display diagnostic results
+            Expanded(
+              child:
+                  _diagnosticResults.isEmpty
+                      ? const Center(child: CircularProgressIndicator())
+                      : ListView(
+                        padding: const EdgeInsets.all(16),
+                        children: [
+                          // System info
+                          _buildDiagnosticSection('System Information', {
+                            'Operating System':
+                                _diagnosticResults['os'] ?? 'Unknown',
+                            'OS Version':
+                                _diagnosticResults['osVersion'] ?? 'Unknown',
+                          }),
+                          const Divider(),
+
+                          // Microphone access
+                          _buildDiagnosticSection('Microphone Permissions', {
+                            'Permission Status':
+                                _diagnosticResults['microphonePermissionStatus'] ??
+                                'Unknown',
+                            'Permission Request Result':
+                                _diagnosticResults['microphonePermissionRequest'] ??
+                                'Not requested',
+                          }),
+                          const Divider(),
+
+                          // Recorder state
+                          _buildDiagnosticSection('Audio Recorder', {
+                            'Recorder Created': _boolToString(
+                              _diagnosticResults['recorderCreated'],
+                            ),
+                            'Recorder Initialized': _boolToString(
+                              _diagnosticResults['recorderInitialized'],
+                            ),
+                            'Recorder Open': _boolToString(
+                              _diagnosticResults['recorderIsOpen'],
+                            ),
+                            'Initialization Error':
+                                _diagnosticResults['recorderInitError'] ??
+                                'None',
+                          }),
+                          const Divider(),
+
+                          // File system
+                          _buildDiagnosticSection('File System', {
+                            'File System Accessible': _boolToString(
+                              _diagnosticResults['fileSystemAccessible'],
+                            ),
+                            'File System Writable': _boolToString(
+                              _diagnosticResults['fileSystemWritable'],
+                            ),
+                            'Documents Directory':
+                                _diagnosticResults['appDocsPath'] ?? 'Unknown',
+                          }),
+                          const Divider(),
+
+                          // Solution suggestions
+                          _buildSolutionSuggestions(),
+                        ],
+                      ),
+            ),
+          ],
+        ),
+        // Add a floating action button as a secondary option
+        floatingActionButton: FloatingActionButton(
+          onPressed: () {
+            setState(() {
+              _showDiagnostics = false;
+            });
+          },
+          tooltip: 'Return to main screen',
+          child: const Icon(Icons.home),
+        ),
+      );
+    }
+
+    // Regular home screen UI when diagnostics are not shown
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -478,261 +574,159 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
 
-          // Diagnostics results panel (shown when diagnostics have been run)
-          if (_showDiagnostics && _diagnosticResults.isNotEmpty)
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.all(8),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  border: Border.all(color: theme.dividerColor),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Microphone Diagnostics',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () {
-                            setState(() {
-                              _showDiagnostics = false;
-                            });
-                          },
-                          iconSize: 20,
-                        ),
-                      ],
+          // Main content area (shown when diagnostics are not visible)
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Audio visualizer when recording
+                  if (isRecording)
+                    AudioVisualizer(
+                      isRecording: isRecording,
+                      recordingDuration: recordingDuration,
                     ),
-                    const Divider(),
-                    Expanded(
-                      child: ListView(
+
+                  // Robot command visualization
+                  if (lastRecordedCommand.isNotEmpty && !isRecording)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 40),
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: theme.colorScheme.primary.withOpacity(0.2),
+                            blurRadius: 10,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: Column(
                         children: [
-                          // System info
-                          _buildDiagnosticSection('System Information', {
-                            'Operating System':
-                                _diagnosticResults['os'] ?? 'Unknown',
-                            'OS Version':
-                                _diagnosticResults['osVersion'] ?? 'Unknown',
-                          }),
-                          const Divider(),
-
-                          // Microphone access
-                          _buildDiagnosticSection('Microphone Permissions', {
-                            'Permission Status':
-                                _diagnosticResults['microphonePermissionStatus'] ??
-                                'Unknown',
-                            'Permission Request Result':
-                                _diagnosticResults['microphonePermissionRequest'] ??
-                                'Not requested',
-                          }),
-                          const Divider(),
-
-                          // Recorder state
-                          _buildDiagnosticSection('Audio Recorder', {
-                            'Recorder Created': _boolToString(
-                              _diagnosticResults['recorderCreated'],
+                          Text(
+                            'Last Command:',
+                            style: theme.textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 10),
+                          SelectableText(
+                            lastRecordedCommand.toUpperCase(),
+                            style: theme.textTheme.headlineMedium?.copyWith(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.bold,
                             ),
-                            'Recorder Initialized': _boolToString(
-                              _diagnosticResults['recorderInitialized'],
-                            ),
-                            'Recorder Open': _boolToString(
-                              _diagnosticResults['recorderIsOpen'],
-                            ),
-                            'Initialization Error':
-                                _diagnosticResults['recorderInitError'] ??
-                                'None',
-                          }),
-                          const Divider(),
-
-                          // File system
-                          _buildDiagnosticSection('File System', {
-                            'File System Accessible': _boolToString(
-                              _diagnosticResults['fileSystemAccessible'],
-                            ),
-                            'File System Writable': _boolToString(
-                              _diagnosticResults['fileSystemWritable'],
-                            ),
-                            'Documents Directory':
-                                _diagnosticResults['appDocsPath'] ?? 'Unknown',
-                          }),
-                          const Divider(),
-
-                          // Solution suggestions
-                          _buildSolutionSuggestions(),
+                          ),
+                          const SizedBox(height: 20),
+                          Icon(
+                            _getCommandIcon(lastRecordedCommand),
+                            color: theme.colorScheme.primary,
+                            size: 50,
+                          ),
                         ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ),
 
-          // Main content area (shown when diagnostics are not visible)
-          if (!_showDiagnostics)
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // Audio visualizer when recording
-                    if (isRecording)
-                      AudioVisualizer(
-                        isRecording: isRecording,
-                        recordingDuration: recordingDuration,
-                      ),
+                  const SizedBox(height: 20),
 
-                    // Robot command visualization
-                    if (lastRecordedCommand.isNotEmpty && !isRecording)
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 40),
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surface,
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: theme.colorScheme.primary.withOpacity(0.2),
-                              blurRadius: 10,
-                              offset: const Offset(0, 5),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
-                            Text(
-                              'Last Command:',
-                              style: theme.textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 10),
-                            SelectableText(
-                              lastRecordedCommand.toUpperCase(),
-                              style: theme.textTheme.headlineMedium?.copyWith(
-                                color: theme.colorScheme.primary,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                            Icon(
-                              _getCommandIcon(lastRecordedCommand),
-                              color: theme.colorScheme.primary,
-                              size: 50,
-                            ),
-                          ],
-                        ),
-                      ),
-
-                    const SizedBox(height: 20),
-
-                    // Recording controls
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // Cancel button (when recording)
-                        if (isRecording)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 32.0),
-                            child: IconButton.filled(
-                              onPressed: _cancelRecording,
-                              icon: const Icon(Icons.cancel),
-                              color: Colors.white,
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.red,
-                                minimumSize: const Size(60, 60),
-                              ),
-                            ),
-                          ),
-
-                        // Record/Stop button
-                        ScaleTransition(
-                          scale: _pulseAnimation,
-                          child: GestureDetector(
-                            onTap: isProcessing ? null : toggleRecording,
-                            child: Container(
-                              width: 100,
-                              height: 100,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color:
-                                    isRecording
-                                        ? Colors.red
-                                        : theme.colorScheme.primary,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: (isRecording
-                                            ? Colors.red
-                                            : theme.colorScheme.primary)
-                                        .withOpacity(0.5),
-                                    blurRadius: 20,
-                                    spreadRadius: 5,
-                                  ),
-                                ],
-                              ),
-                              child: Icon(
-                                isRecording ? Icons.stop : Icons.mic,
-                                color: Colors.white,
-                                size: 40,
-                              ),
+                  // Recording controls - simplified to only voice controls
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Cancel button (when recording)
+                      if (isRecording)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 32.0),
+                          child: IconButton.filled(
+                            onPressed: _cancelRecording,
+                            icon: const Icon(Icons.cancel),
+                            color: Colors.white,
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              minimumSize: const Size(60, 60),
                             ),
                           ),
                         ),
-                      ],
-                    ),
 
-                    const SizedBox(height: 20),
-                    Text(
-                      isRecording
-                          ? 'Tap to stop recording'
-                          : 'Tap to record command',
-                      style: theme.textTheme.bodyLarge,
-                    ),
-
-                    if (!isRecording && AudioRecorderService.isMockRecording)
-                      Container(
-                        margin: const EdgeInsets.only(top: 16),
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.orange),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.warning_amber,
-                              color: Colors.orange,
-                            ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                'Using mock recordings - tap "Microphone Diagnostics" icon to troubleshoot',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: Colors.orange[800],
+                      // Record/Stop button
+                      ScaleTransition(
+                        scale: _pulseAnimation,
+                        child: InkWell(
+                          onTap: isProcessing ? null : toggleRecording,
+                          child: Container(
+                            width: 100,
+                            height: 100,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color:
+                                  isRecording
+                                      ? Colors.red
+                                      : theme.colorScheme.primary,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: (isRecording
+                                          ? Colors.red
+                                          : theme.colorScheme.primary)
+                                      .withOpacity(0.5),
+                                  blurRadius: 20,
+                                  spreadRadius: 5,
                                 ),
-                                textAlign: TextAlign.center,
-                              ),
+                              ],
                             ),
-                          ],
+                            child: Icon(
+                              isRecording ? Icons.stop : Icons.mic,
+                              color: Colors.white,
+                              size: 40,
+                            ),
+                          ),
                         ),
                       ),
-                  ],
-                ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 20),
+                  Text(
+                    isRecording
+                        ? 'Tap to stop recording'
+                        : 'Tap to record voice command',
+                    style: theme.textTheme.bodyLarge,
+                  ),
+
+                  if (!isRecording && AudioRecorderService.isMockRecording)
+                    Container(
+                      margin: const EdgeInsets.only(top: 16),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.warning_amber, color: Colors.orange),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              'Using mock recordings - tap "Microphone Diagnostics" icon to troubleshoot',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: Colors.orange[800],
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
             ),
+          ),
         ],
       ),
       floatingActionButton:
-          isRecording || _showDiagnostics
+          isRecording
               ? null
               : FloatingActionButton(
                 onPressed: isScanning ? null : _scanForDevices,

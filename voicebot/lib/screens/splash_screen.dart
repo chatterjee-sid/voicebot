@@ -1,10 +1,11 @@
-import 'package:flutter/material.dart';
 import 'dart:async';
-import 'home_screen.dart';
-import '../core/theme.dart';
+import 'package:flutter/material.dart';
+import '../screens/home_screen.dart';
+import '../services/audio_recorder.dart';
+import '../services/bluetooth_service.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
+  const SplashScreen({Key? key}) : super(key: key);
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -12,137 +13,178 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _fadeAnimation;
-  late Animation<double> _scaleAnimation;
+  late AnimationController _animationController;
+  late Animation<double> _animation;
+  String _statusMessage = 'Initializing...';
+  bool _showError = false;
 
   @override
   void initState() {
     super.initState();
 
-    // Setup animations
-    _controller = AnimationController(
+    _animationController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
     );
 
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: Interval(0.0, 0.6, curve: Curves.easeIn),
-      ),
+    _animation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: Interval(0.4, 1.0, curve: Curves.easeOut),
-      ),
-    );
+    _animationController.forward();
 
-    // Start animation
-    _controller.forward();
+    _initializeApp();
+  }
 
-    // Navigate to home screen after 3 seconds
-    Timer(const Duration(seconds: 3), () {
-      Navigator.pushReplacement(
-        context,
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              const HomeScreen(),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(opacity: animation, child: child);
-          },
-          transitionDuration: const Duration(milliseconds: 800),
-        ),
-      );
-    });
+  Future<void> _initializeApp() async {
+    try {
+      // Check microphone permissions
+      setState(() {
+        _statusMessage = 'Checking microphone access...';
+      });
+
+      await AudioRecorderService.checkMicrophonePermission();
+
+      // Initialize Bluetooth (on supported platforms)
+      setState(() {
+        _statusMessage = 'Initializing Bluetooth...';
+      });
+
+      await BluetoothService.initBluetooth();
+
+      // Complete initialization
+      setState(() {
+        _statusMessage = 'Ready!';
+      });
+
+      // Navigate to home screen after a delay
+      Timer(const Duration(seconds: 2), () {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
+      });
+    } catch (e) {
+      setState(() {
+        _statusMessage = 'Error: $e';
+        _showError = true;
+      });
+    }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: AppTheme.backgroundColor,
-      body: Center(
-        child: AnimatedBuilder(
-          animation: _controller,
-          builder: (context, child) {
-            return FadeTransition(
-              opacity: _fadeAnimation,
-              child: ScaleTransition(
-                scale: _scaleAnimation,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 180,
-                      height: 180,
-                      decoration: BoxDecoration(
-                        color: AppTheme.cardColor,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.accentColor.withOpacity(0.6),
-                            blurRadius: 30,
-                            spreadRadius: 5,
-                          ),
-                        ],
-                      ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.mic,
-                          color: AppTheme.accentColor,
-                          size: 80,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 30),
-                    Text(
-                      'Voice-Controlled Robot',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.textColor,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Speak and control with LLM technology',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: AppTheme.textColor.withOpacity(0.7),
-                      ),
-                    ),
-                    const SizedBox(height: 15),
-                    Text(
-                      'Developed by Group2 SVNIT',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: AppTheme.accentColor,
-                      ),
-                    ),
-                    const SizedBox(height: 40),
-                    SizedBox(
-                      width: 40,
-                      height: 40,
-                      child: CircularProgressIndicator(
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(AppTheme.accentColor),
-                        strokeWidth: 2,
-                      ),
-                    ),
-                  ],
+      body: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              theme.colorScheme.primary,
+              theme.colorScheme.primaryContainer,
+            ],
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Logo animation
+            FadeTransition(
+              opacity: _animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, -0.5),
+                  end: Offset.zero,
+                ).animate(_animation),
+                child: Icon(
+                  Icons.mic,
+                  size: 120,
+                  color: theme.colorScheme.onPrimary,
                 ),
               ),
-            );
-          },
+            ),
+
+            const SizedBox(height: 24),
+
+            // App name
+            FadeTransition(
+              opacity: _animation,
+              child: Text(
+                'Voice-Controlled Robot',
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  color: theme.colorScheme.onPrimary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // App description
+            FadeTransition(
+              opacity: _animation,
+              child: Text(
+                'Control your robot with voice commands',
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: theme.colorScheme.onPrimary.withOpacity(0.8),
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+
+            const SizedBox(height: 48),
+
+            // Status and progress indicator
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 32),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    _statusMessage,
+                    style: TextStyle(
+                      color:
+                          _showError
+                              ? theme.colorScheme.error
+                              : theme.colorScheme.onPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _showError
+                      ? ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            _showError = false;
+                            _statusMessage = 'Retrying...';
+                          });
+                          _initializeApp();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: theme.colorScheme.surface,
+                        ),
+                        child: const Text('Retry'),
+                      )
+                      : const CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

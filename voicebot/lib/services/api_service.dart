@@ -1,173 +1,211 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import '../models/command_model.dart';
+import 'package:path/path.dart' as path;
 
 class ApiService {
-  // Real Hugging Face model URLs for speech command recognition
-  static const String englishModelUrl =
-      'https://api-inference.huggingface.co/models/facebook/wav2vec2-base-960h';
-  static const String regionalModelUrl =
-      'https://api-inference.huggingface.co/models/ai4bharat/indicwav2vec-transformer';
+  // Updated Hugging Face Spaces URL - use proper API endpoints
+  static const String _englishModelUrl =
+      "https://nikjhonshon-voicecontrolledcar.hf.space"; // Direct API URL format
+  static const String _nonEnglishModelUrl =
+      "https://nikjhonshon-multilingual.hf.space"; // Direct API URL format
 
-  // You should replace this with your actual Hugging Face API token
-  static const String huggingFaceApiToken = 'hf_your_token_here';
+  // Correct endpoint for Hugging Face Spaces Gradio API
+  static const String _speechToCommandEndpoint = '/api/predict';
 
-  // Getter for the base URL to be used in settings screen
-  static String get baseUrl => englishModelUrl.split('/models/')[0];
+  // Timeout duration for requests
+  static const Duration _requestTimeout = Duration(seconds: 60);
 
-  // Get the appropriate model URL based on language
-  static String getModelUrlForLanguage(String languageCode) {
-    // Use English model for English, regional model for others
-    switch (languageCode) {
-      case 'en':
-        return englishModelUrl;
-      case 'hi':
-      case 'gu':
-        return regionalModelUrl;
-      default:
-        return englishModelUrl; // Default to English model
+  /// Get the appropriate model URL based on language
+  static String _getModelUrlForLanguage(String language) {
+    if (language.toLowerCase() == 'en') {
+      return _englishModelUrl;
+    } else {
+      return _nonEnglishModelUrl;
     }
   }
 
-  // Send audio file to backend for processing
+  /// Process audio file and return the recognized command
   static Future<String> processAudioCommand(
-    String filePath,
-    String languageCode,
+    String audioFilePath,
+    String language,
   ) async {
     try {
-      if (kDebugMode) {
-        print('Sending audio file at path: $filePath');
-        print('Using language: $languageCode');
-      }
-
-      // Verify file exists
-      final audioFile = File(filePath);
-      if (!await audioFile.exists()) {
-        throw Exception('Audio file not found at path: $filePath');
-      }
-
-      final fileSize = await audioFile.length();
-      if (kDebugMode) {
-        print('Audio file size: ${(fileSize / 1024).toStringAsFixed(2)} KB');
-      }
-
-      // Determine which model to use based on the language
-      final modelUrl = getModelUrlForLanguage(languageCode);
-      if (kDebugMode) {
-        print('Using model URL: $modelUrl');
-      }
-
-      // Read the audio file as bytes
-      final bytes = await audioFile.readAsBytes();
-
-      // Send request directly to Hugging Face inference API
-      final response = await http.post(
-        Uri.parse(modelUrl),
-        headers: {
-          'Authorization': 'Bearer $huggingFaceApiToken',
-          'Content-Type': 'audio/wav',
-        },
-        body: bytes,
+      debugPrint(
+        'Processing audio file: $audioFilePath with language: $language',
       );
 
-      if (kDebugMode) {
-        print('Response status: ${response.statusCode}');
-        print('Response body: ${response.body}');
-      }
-
-      if (response.statusCode == 200) {
-        final jsonResponse = json.decode(response.body);
-
-        // Extract just the action/command from the response
-        String action = '';
-
-        // Handle the specific response format from Hugging Face
-        if (jsonResponse is List && jsonResponse.isNotEmpty) {
-          // If response is a list of results, get the first one
-          final result = jsonResponse[0];
-          action = result['label'] ?? result['action'] ?? '';
-        } else if (jsonResponse is Map) {
-          // If response is a single result object
-          action = jsonResponse['label'] ?? jsonResponse['action'] ?? '';
-        } else if (jsonResponse is String) {
-          // Some models might return a direct string
-          action = jsonResponse;
-        }
-
-        // If we couldn't extract a valid action
-        if (action.isEmpty) {
-          throw Exception('Could not extract action from model response');
-        }
-
-        return action;
-      } else {
-        // For development/debugging, provide more error details
-        if (kDebugMode) {
-          print('Error response: ${response.body}');
-        }
-        throw Exception(
-          'Failed to process audio: ${response.statusCode} - ${response.reasonPhrase}',
-        );
-      }
+      // Try multiple approaches to find one that works
+      return await tryMultipleApproaches(audioFilePath, language);
     } catch (e) {
-      if (kDebugMode) {
-        print('Error processing audio: $e');
+      debugPrint('Error processing audio command: $e');
+      if (e is TimeoutException) {
+        return 'Error: Request timed out';
       }
-
-      // In debug mode, return a mock action for testing
-      if (kDebugMode) {
-        final mockActions = {
-          'en': ['forward', 'backward', 'left', 'right', 'stop'],
-          'hi': ['forward', 'backward', 'left', 'right', 'stop'],
-          'gu': ['forward', 'backward', 'left', 'right', 'stop'],
-        };
-
-        // Pick a random action based on the language
-        final actions = mockActions[languageCode] ?? mockActions['en']!;
-        final randomIndex =
-            DateTime.now().millisecondsSinceEpoch % actions.length;
-        return actions[randomIndex];
-      }
-
-      // In production, return an error
-      return 'error';
+      return 'Error: ${e.toString()}';
     }
   }
 
-  // Check server status
-  static Future<bool> checkServerStatus() async {
+  /// Try multiple API approaches to find one that works
+  static Future<String> tryMultipleApproaches(
+    String audioFilePath,
+    String language,
+  ) async {
+    // List of URLs to try
+    final urlsToTry = [
+      "https://nikjhonshon-voicecontrolledcar.hf.space/run/predict",
+      "https://huggingface.co/spaces/Nikjhonshon/VoiceControlledCar/run/predict",
+      "https://api-inference.huggingface.co/models/Nikjhonshon/VoiceControlledCar",
+      // Add the correct URL when you find it
+    ];
+
+    // For logging
+    debugPrint("Trying multiple API endpoints to find one that works");
+
+    for (var url in urlsToTry) {
+      try {
+        debugPrint("Attempting with URL: $url");
+        String result = await _submitWithUrl(url, audioFilePath, language);
+        if (!result.startsWith("Error:")) {
+          // Success! Return the successful result
+          return result;
+        }
+        // If we got an error, try the next URL
+        debugPrint("Failed with URL: $url. Trying next...");
+      } catch (e) {
+        debugPrint("Exception with URL $url: $e");
+        // Continue to next URL
+      }
+    }
+
+    // If all approaches failed
+    return "Error: Could not connect to any known API endpoint";
+  }
+
+  /// Helper to try a specific URL with appropriate payload
+  static Future<String> _submitWithUrl(
+    String url,
+    String audioFilePath,
+    String language,
+  ) async {
+    final file = File(audioFilePath);
+    if (!await file.exists()) {
+      return "Error: Audio file not found";
+    }
+
+    final bytes = await file.readAsBytes();
+
+    // Try different payload formats
+
     try {
-      // Check the status of both models
-      final englishModelResponse = await http
-          .head(
-            Uri.parse(englishModelUrl),
-            headers: {'Authorization': 'Bearer $huggingFaceApiToken'},
+      // Approach 1: JSON with base64
+      final base64Audio = base64Encode(bytes);
+      final fileName = file.uri.pathSegments.last;
+      debugPrint("File name: $fileName");
+      final jsonResponse = await http
+          .post(
+            Uri.parse(url),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'name': fileName,
+              'data': "data:audio/wave;base64,$base64Audio",
+            }),
           )
-          .timeout(const Duration(seconds: 5));
+          .timeout(_requestTimeout);
 
-      final regionalModelResponse = await http
-          .head(
-            Uri.parse(regionalModelUrl),
-            headers: {'Authorization': 'Bearer $huggingFaceApiToken'},
-          )
-          .timeout(const Duration(seconds: 5));
-
-      if (kDebugMode) {
-        print('English model status: ${englishModelResponse.statusCode}');
-        print('Regional model status: ${regionalModelResponse.statusCode}');
+      if (jsonResponse.statusCode == 200) {
+        // Process successful response
+        debugPrint("Success with JSON base64 approach");
+        return _processResponse(jsonResponse);
       }
 
-      // Consider servers up if both return successful responses
-      return englishModelResponse.statusCode < 400 &&
-          regionalModelResponse.statusCode < 400;
+      // Approach 2: Raw binary
+      final binaryResponse = await http
+          .post(
+            Uri.parse(url),
+            headers: {'Content-Type': 'audio/wav'},
+            body: bytes,
+          )
+          .timeout(_requestTimeout);
+
+      if (binaryResponse.statusCode == 200) {
+        // Process successful response
+        debugPrint("Success with raw binary approach");
+        return _processResponse(binaryResponse);
+      }
+
+      // Approach 3: Multipart
+      final request = http.MultipartRequest('POST', Uri.parse(url));
+      request.files.add(
+        await http.MultipartFile.fromPath('file', audioFilePath),
+      );
+      request.fields['language'] = language;
+
+      final streamedResponse = await request.send().timeout(_requestTimeout);
+      final multipartResponse = await http.Response.fromStream(
+        streamedResponse,
+      );
+
+      if (multipartResponse.statusCode == 200) {
+        // Process successful response
+        debugPrint("Success with multipart approach");
+        return _processResponse(multipartResponse);
+      }
+
+      return "Error: All request formats failed with status codes: ${jsonResponse.statusCode}, ${binaryResponse.statusCode}, ${multipartResponse.statusCode}";
     } catch (e) {
-      if (kDebugMode) {
-        print('Server connection failed: $e');
+      return "Error: Exception during request: $e";
+    }
+  }
+
+  /// Process a successful response
+  static String _processResponse(http.Response response) {
+    try {
+      final jsonResponse = jsonDecode(response.body);
+      debugPrint('JSON response: $jsonResponse');
+
+      String command = "";
+
+      if (jsonResponse.containsKey('data')) {
+        final data = jsonResponse['data'];
+        if (data is List && data.isNotEmpty) {
+          command = data[0].toString();
+        } else {
+          command = data.toString();
+        }
+      } else if (jsonResponse.containsKey('result')) {
+        command = jsonResponse['result'].toString();
+      } else {
+        command = jsonResponse.toString();
       }
-      // For debugging, always return true to allow the app to function
-      return kDebugMode ? true : false;
+
+      command = command.replaceAll('"', '').trim();
+      return command;
+    } catch (e) {
+      // If JSON parsing fails, return the raw response
+      return response.body.trim();
+    }
+  }
+
+  // Helper function to limit string length
+  static int min(int a, int b) => a < b ? a : b;
+
+  /// Check if the API service is available
+  static Future<bool> checkServiceAvailability(String language) async {
+    try {
+      final modelUrl = _getModelUrlForLanguage(language);
+
+      // Try to reach the model's home page instead of /health which might not exist
+      final response = await http
+          .get(Uri.parse(modelUrl))
+          .timeout(const Duration(seconds: 10));
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error checking API service: $e');
+      return false;
     }
   }
 }

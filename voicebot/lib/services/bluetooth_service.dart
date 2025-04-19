@@ -1,193 +1,133 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 
-// Import Windows platform flag
-import '../main.dart' show isRunningOnWindows;
-
 class BluetoothService {
-  static BluetoothConnection? connection;
-  static StreamSubscription<BluetoothDiscoveryResult>? _streamSubscription;
-  static List<BluetoothDiscoveryResult> devices = [];
-  static bool isConnected = false;
-  static bool _isPlatformSupported = !isRunningOnWindows;
+  static final FlutterBluetoothSerial _bluetooth =
+      FlutterBluetoothSerial.instance;
+  static BluetoothConnection? _connection;
+  static bool _isConnected = false;
+  static final Set<BluetoothDiscoveryResult> _devicesList = {};
+  static StreamSubscription<BluetoothDiscoveryResult>? _discoveryStream;
 
-  // Check if this platform supports Bluetooth
-  static bool get isPlatformSupported => _isPlatformSupported;
+  static bool get isConnected => _isConnected;
 
   // Initialize Bluetooth
   static Future<bool> initBluetooth() async {
     try {
-      // Always return mock success on Windows
-      if (isRunningOnWindows) {
-        debugPrint('Running on Windows - using mock Bluetooth');
-        _isPlatformSupported = false;
-        return true;
-      }
-
-      // Check for platform support
-      if (!Platform.isAndroid && !Platform.isIOS) {
-        debugPrint(
-          'Bluetooth functionality not supported on ${Platform.operatingSystem}',
-        );
-        _isPlatformSupported = false;
+      // Check if Bluetooth is available
+      bool? isAvailable = await _bluetooth.isAvailable;
+      if (isAvailable != true) {
         return false;
       }
 
-      _isPlatformSupported = true;
-      bool isEnabled = await FlutterBluetoothSerial.instance.isEnabled ?? false;
-      if (!isEnabled) {
-        await FlutterBluetoothSerial.instance.requestEnable();
+      // Check if Bluetooth is enabled
+      bool? isEnabled = await _bluetooth.isEnabled;
+      if (isEnabled != true) {
+        // Request user to enable Bluetooth
+        await _bluetooth.requestEnable();
+        // Check again if it was enabled
+        isEnabled = await _bluetooth.isEnabled;
       }
-      return await FlutterBluetoothSerial.instance.isEnabled ?? false;
+
+      return isEnabled ?? false;
     } catch (e) {
       debugPrint('Error initializing Bluetooth: $e');
-      _isPlatformSupported = false;
       return false;
     }
   }
 
   // Start device discovery
-  static void startDiscovery(
-    Function(List<BluetoothDiscoveryResult>) onDevicesFound,
-  ) {
-    // Always provide mock devices on Windows or unsupported platforms
-    if (isRunningOnWindows || !_isPlatformSupported) {
-      debugPrint(
-        'Using mock Bluetooth discovery on ${Platform.operatingSystem}',
-      );
-      _provideMockDevices(onDevicesFound);
-      return;
-    }
+  static Future<StreamSubscription<BluetoothDiscoveryResult>> startDiscovery(
+    Function(Set<BluetoothDiscoveryResult>) onResultsUpdated,
+  ) async {
+    _devicesList.clear();
 
-    devices.clear();
-    _streamSubscription?.cancel();
+    // Cancel any existing discovery stream
+    await _discoveryStream?.cancel();
 
-    _streamSubscription = FlutterBluetoothSerial.instance
-        .startDiscovery()
-        .listen((result) {
-          final deviceIndex = devices.indexWhere(
-            (device) => device.device.address == result.device.address,
-          );
-          if (deviceIndex < 0) {
-            devices.add(result);
-            onDevicesFound(devices);
-          }
-        });
-
-    _streamSubscription?.onDone(() {
-      _streamSubscription = null;
+    // Start discovery and listen for results
+    _discoveryStream = _bluetooth.startDiscovery().listen((result) {
+      final existingIndex = _devicesList.lookup(result);
+      if (existingIndex == null) {
+        _devicesList.add(result);
+        onResultsUpdated(_devicesList);
+      }
     });
+
+    return _discoveryStream!;
   }
 
-  // Provide mock Bluetooth devices for testing on Windows or platforms without Bluetooth support
-  static void _provideMockDevices(
-    Function(List<BluetoothDiscoveryResult>) onDevicesFound,
-  ) {
-    // Create mock devices with a delay to simulate discovery
-    Future.delayed(const Duration(seconds: 2), () {
-      final mockDevices = [
-        BluetoothDiscoveryResult(
-          device: BluetoothDevice(
-            name: 'Mock Robot 1',
-            address: '00:11:22:33:44:55',
-          ),
-          rssi: -60,
-        ),
-        BluetoothDiscoveryResult(
-          device: BluetoothDevice(
-            name: 'Mock Arduino Bot',
-            address: 'AA:BB:CC:DD:EE:FF',
-          ),
-          rssi: -70,
-        ),
-        BluetoothDiscoveryResult(
-          device: BluetoothDevice(
-            name: 'Windows Test Device',
-            address: 'WW:II:NN:DD:OO:WS',
-          ),
-          rssi: -50,
-        ),
-      ];
-
-      devices.addAll(mockDevices);
-      onDevicesFound(devices);
-    });
-  }
-
-  // Stop discovery process
+  // Stop discovery
   static void stopDiscovery() {
-    _streamSubscription?.cancel();
-    _streamSubscription = null;
+    _discoveryStream?.cancel();
+    _discoveryStream = null;
   }
 
-  // Connect to a bluetooth device
+  // Connect to a device
   static Future<bool> connectToDevice(BluetoothDevice device) async {
-    if (isRunningOnWindows || !_isPlatformSupported) {
-      // Simulate connection on Windows
-      debugPrint('Simulating connection to device: ${device.name}');
-      isConnected = true;
-      return true;
-    }
-
-    if (connection != null) {
-      await connection?.close();
-      connection = null;
-      isConnected = false;
+    if (_connection != null) {
+      await _connection!.close();
+      _connection = null;
+      _isConnected = false;
     }
 
     try {
-      connection = await BluetoothConnection.toAddress(device.address);
-      isConnected = true;
+      _connection = await BluetoothConnection.toAddress(device.address);
+      _isConnected = true;
+      debugPrint('Connected to ${device.name}');
 
-      // Listen for incoming data (useful for status updates)
-      connection?.input?.listen((data) {
-        final message = ascii.decode(data);
-        debugPrint('Data received from Arduino: $message');
+      // Listen for disconnection
+      _connection!.input!.listen(null).onDone(() {
+        _isConnected = false;
+        _connection = null;
+        debugPrint('Disconnected from ${device.name}');
       });
 
       return true;
     } catch (e) {
-      debugPrint('Connection error: $e');
-      isConnected = false;
+      debugPrint('Error connecting to device: $e');
+      _isConnected = false;
+      _connection = null;
       return false;
     }
   }
 
-  // Send command to Arduino
+  // Send command to connected device
   static Future<bool> sendCommand(String command) async {
-    if (isRunningOnWindows || !_isPlatformSupported) {
-      // Simulate sending command on Windows
-      debugPrint('Simulating sending command: $command');
-      return true;
+    if (!_isConnected || _connection == null) {
+      return false;
     }
 
-    if (connection?.isConnected ?? false) {
-      try {
-        connection!.output.add(utf8.encode('$command\r\n'));
-        await connection!.output.allSent;
-        return true;
-      } catch (e) {
-        debugPrint('Failed to send command: $e');
-        return false;
-      }
-    } else {
-      debugPrint('Bluetooth not connected');
+    try {
+      // Add a newline character to end the command
+      command = "$command\n";
+      _connection!.output.add(Uint8List.fromList(utf8.encode(command)));
+      await _connection!.output.allSent;
+      debugPrint('Command sent: $command');
+      return true;
+    } catch (e) {
+      debugPrint('Error sending command: $e');
+      _isConnected = false;
       return false;
     }
   }
 
   // Disconnect from device
   static Future<void> disconnect() async {
-    if (isRunningOnWindows || !_isPlatformSupported) {
-      isConnected = false;
-      return;
+    if (_connection != null) {
+      await _connection!.close();
+      _connection = null;
+      _isConnected = false;
+      debugPrint('Bluetooth disconnected');
     }
+  }
 
-    await connection?.close();
-    connection = null;
-    isConnected = false;
+  // Dispose of resources
+  static void dispose() {
+    stopDiscovery();
+    disconnect();
   }
 }

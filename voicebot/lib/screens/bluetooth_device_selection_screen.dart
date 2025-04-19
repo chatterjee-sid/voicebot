@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
+import '../services/bluetooth_service.dart';
 
 class BluetoothDeviceSelectionScreen extends StatefulWidget {
-  const BluetoothDeviceSelectionScreen({super.key});
+  const BluetoothDeviceSelectionScreen({Key? key}) : super(key: key);
 
   @override
   State<BluetoothDeviceSelectionScreen> createState() =>
@@ -11,165 +13,131 @@ class BluetoothDeviceSelectionScreen extends StatefulWidget {
 
 class _BluetoothDeviceSelectionScreenState
     extends State<BluetoothDeviceSelectionScreen> {
-  List<BluetoothDevice> _devices = [];
-  bool _isDiscovering = false;
+  List<BluetoothDiscoveryResult> _devices = [];
+  bool _isScanning = false;
+  StreamSubscription<BluetoothDiscoveryResult>? _discoveryStreamSubscription;
 
   @override
   void initState() {
     super.initState();
-
-    // Schedule the platform check for after the first build
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkPlatformAndInitialize();
-    });
+    _startDiscovery();
   }
 
-  void _checkPlatformAndInitialize() {
-    // For desktop platforms, especially Windows, we'll use simulation mode
-    if (Theme.of(context).platform == TargetPlatform.windows ||
-        Theme.of(context).platform == TargetPlatform.linux ||
-        Theme.of(context).platform == TargetPlatform.macOS) {
-      _simulateDevices();
-    } else {
-      _startDiscovery();
-    }
+  @override
+  void dispose() {
+    _discoveryStreamSubscription?.cancel();
+    super.dispose();
   }
 
-  void _simulateDevices() {
-    // Create simulated devices for desktop platforms
+  void _startDiscovery() {
     setState(() {
-      _devices = [
-        BluetoothDevice(
-          name: 'Simulated Arduino Robot',
-          address: '00:11:22:33:44:55',
-        ),
-        BluetoothDevice(name: 'HC-05 Module', address: '55:44:33:22:11:00'),
-        BluetoothDevice(
-          name: 'Robot Car Controller',
-          address: 'AA:BB:CC:DD:EE:FF',
-        ),
-      ];
-      _isDiscovering = false;
-    });
-  }
-
-  void _startDiscovery() async {
-    setState(() {
-      _isDiscovering = true;
+      _isScanning = true;
+      _devices = [];
     });
 
-    try {
-      // This will only execute on mobile platforms
-      bool? isEnabled = await FlutterBluetoothSerial.instance.isEnabled;
-      if (isEnabled != true) {
-        await FlutterBluetoothSerial.instance.requestEnable();
-        isEnabled = await FlutterBluetoothSerial.instance.isEnabled;
-        if (isEnabled != true) {
-          setState(() {
-            _isDiscovering = false;
-          });
-          return;
-        }
-      }
-
-      // Get paired devices
-      List<BluetoothDevice> bondedDevices =
-          await FlutterBluetoothSerial.instance.getBondedDevices();
-
+    BluetoothService.startDiscovery((results) {
       setState(() {
-        _devices = bondedDevices;
-        _isDiscovering = false;
+        _devices = results.toList();
       });
-    } catch (e) {
-      setState(() {
-        _isDiscovering = false;
-      });
+    }).then((subscription) {
+      _discoveryStreamSubscription = subscription;
+    });
 
+    // Stop discovery after 30 seconds automatically
+    Future.delayed(const Duration(seconds: 30), () {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to discover devices: ${e.toString()}'),
-          ),
-        );
+        _stopDiscovery();
       }
-    }
+    });
   }
 
-  bool isDesktopPlatform() {
-    return Theme.of(context).platform == TargetPlatform.windows ||
-        Theme.of(context).platform == TargetPlatform.linux ||
-        Theme.of(context).platform == TargetPlatform.macOS;
+  void _stopDiscovery() {
+    _discoveryStreamSubscription?.cancel();
+    BluetoothService.stopDiscovery();
+
+    setState(() {
+      _isScanning = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Select Bluetooth Device'),
-        centerTitle: true,
+        title: const Text('Select Device'),
         actions: [
-          IconButton(
-            icon: Icon(_isDiscovering ? Icons.stop : Icons.refresh),
-            onPressed:
-                _isDiscovering
-                    ? null
-                    : isDesktopPlatform()
-                    ? _simulateDevices
-                    : _startDiscovery,
+          if (_isScanning)
+            IconButton(
+              icon: const Icon(Icons.stop),
+              onPressed: _stopDiscovery,
+              tooltip: 'Stop scanning',
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _startDiscovery,
+              tooltip: 'Scan for devices',
+            ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child:
+                _isScanning
+                    ? const LinearProgressIndicator()
+                    : Container(
+                      height: 4,
+                      alignment: Alignment.centerLeft,
+                      child: const Text(
+                        'Scan completed',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+          ),
+          Expanded(
+            child:
+                _devices.isEmpty
+                    ? Center(
+                      child:
+                          _isScanning
+                              ? const Text('Scanning for devices...')
+                              : const Text('No devices found'),
+                    )
+                    : ListView.builder(
+                      itemCount: _devices.length,
+                      itemBuilder: (context, index) {
+                        final result = _devices[index];
+                        final device = result.device;
+                        return ListTile(
+                          leading: Icon(
+                            Icons.bluetooth,
+                            color: Theme.of(context).primaryColor,
+                          ),
+                          title: Text(device.name ?? 'Unknown device'),
+                          subtitle: Text(device.address),
+                          trailing: TextButton(
+                            child: const Text('CONNECT'),
+                            onPressed: () {
+                              _stopDiscovery(); // Stop discovery before connecting
+                              Navigator.of(
+                                context,
+                              ).pop(device); // Return the selected device
+                            },
+                          ),
+                          onTap: () {
+                            _stopDiscovery(); // Stop discovery before connecting
+                            Navigator.of(
+                              context,
+                            ).pop(device); // Return the selected device
+                          },
+                        );
+                      },
+                    ),
           ),
         ],
       ),
-      body:
-          _isDiscovering
-              ? const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('Discovering devices...'),
-                  ],
-                ),
-              )
-              : _devices.isEmpty
-              ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text('No devices found'),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed:
-                          isDesktopPlatform()
-                              ? _simulateDevices
-                              : _startDiscovery,
-                      child: const Text('SCAN AGAIN'),
-                    ),
-                  ],
-                ),
-              )
-              : ListView.builder(
-                itemCount: _devices.length,
-                itemBuilder: (context, index) {
-                  final device = _devices[index];
-                  return ListTile(
-                    leading: Icon(
-                      device.name?.contains('Arduino') == true ||
-                              device.name?.contains('HC-05') == true ||
-                              device.name?.contains('Robot') == true
-                          ? Icons.memory
-                          : Icons.bluetooth,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    title: Text(device.name ?? 'Unknown device'),
-                    subtitle: Text(device.address),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () {
-                      Navigator.pop(context, device);
-                    },
-                  );
-                },
-              ),
     );
   }
 }

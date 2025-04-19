@@ -1,62 +1,31 @@
+enum CommandType { forward, backward, left, right, stop, unknown }
+
 class Command {
-  final String action;
-  final String originalText;
-  final String language;
+  final CommandType type;
+  final String rawText;
 
-  Command({
-    required this.action,
-    required this.originalText,
-    required this.language,
-  });
+  Command({required this.type, required this.rawText});
 
-  factory Command.fromJson(Map<String, dynamic> json) {
-    return Command(
-      action: json['action'] ?? '',
-      originalText: json['original_text'] ?? '',
-      language: json['language'] ?? 'en',
-    );
-  }
+  factory Command.fromString(String text) {
+    final lowercaseText = text.toLowerCase().trim();
 
-  Map<String, dynamic> toJson() {
-    return {
-      'action': action,
-      'original_text': originalText,
-      'language': language,
-    };
+    if (lowercaseText.contains('forward') || lowercaseText.contains('ahead')) {
+      return Command(type: CommandType.forward, rawText: text);
+    } else if (lowercaseText.contains('backward') ||
+        lowercaseText.contains('back')) {
+      return Command(type: CommandType.backward, rawText: text);
+    } else if (lowercaseText.contains('left')) {
+      return Command(type: CommandType.left, rawText: text);
+    } else if (lowercaseText.contains('right')) {
+      return Command(type: CommandType.right, rawText: text);
+    } else if (lowercaseText.contains('stop') ||
+        lowercaseText.contains('halt')) {
+      return Command(type: CommandType.stop, rawText: text);
+    } else {
+      return Command(type: CommandType.unknown, rawText: text);
+    }
   }
 
   @override
-  String toString() {
-    return 'Command: $action (from: $originalText)';
-  }
-}
-
-enum VoiceLanguage {
-  english,
-  hindi,
-  gujarati
-}
-
-extension VoiceLanguageExtension on VoiceLanguage {
-  String get code {
-    switch (this) {
-      case VoiceLanguage.english:
-        return 'en';
-      case VoiceLanguage.hindi:
-        return 'hi';
-      case VoiceLanguage.gujarati:
-        return 'gu';
-    }
-  }
-
-  String get displayName {
-    switch (this) {
-      case VoiceLanguage.english:
-        return 'English';
-      case VoiceLanguage.hindi:
-        return 'Hindi';
-      case VoiceLanguage.gujarati:
-        return 'Gujarati';
-    }
-  }
+  String toString() => rawText;
 }

@@ -61,11 +61,11 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _stopVolumeMonitoring();
 
     // Try to get real volume data from the recorder
-    final volumeStream = AudioRecorderService.getRecordingStream();
+    final amplitudeStream = AudioRecorderService.getRecordingStream();
 
-    if (volumeStream != null) {
+    if (amplitudeStream != null) {
       // Use real volume data from recorder
-      _volumeSubscription = volumeStream.listen(
+      _volumeSubscription = amplitudeStream.listen(
         (amplitude) {
           // The Record package's Amplitude class uses 'current' instead of 'decibels'
           final double volume = amplitude.current ?? 0;
