@@ -1,24 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 
 class ApiService {
-  // Updated Hugging Face Spaces URL - use proper API endpoints
   static const String _englishModelUrl =
-      "https://nikjhonshon-voicecontrolledcar.hf.space"; // Direct API URL format
+      "https://nikjhonshon-voicecontrolledcar.hf.space/gradio_api"; // Direct API URL format
   static const String _nonEnglishModelUrl =
-      "https://nikjhonshon-multilingual.hf.space"; // Direct API URL format
+      "https://nikjhonshon-multilingual.hf.space/gradio_api"; // Direct API URL format
 
-  // Correct endpoint for Hugging Face Spaces Gradio API
-  static const String _speechToCommandEndpoint = '/api/predict';
-
-  // Timeout duration for requests
-  static const Duration _requestTimeout = Duration(seconds: 60);
-
-  /// Get the appropriate model URL based on language
+  // Get the appropriate model URL based on language
   static String _getModelUrlForLanguage(String language) {
     if (language.toLowerCase() == 'en') {
       return _englishModelUrl;
@@ -27,7 +21,7 @@ class ApiService {
     }
   }
 
-  /// Process audio file and return the recognized command
+  // Process audio file and return the recognized command
   static Future<String> processAudioCommand(
     String audioFilePath,
     String language,
@@ -37,8 +31,10 @@ class ApiService {
         'Processing audio file: $audioFilePath with language: $language',
       );
 
-      // Try multiple approaches to find one that works
-      return await tryMultipleApproaches(audioFilePath, language);
+      return await submitToGradioSpace(
+        audioFilePath: audioFilePath,
+        language: language,
+      );
     } catch (e) {
       debugPrint('Error processing audio command: $e');
       if (e is TimeoutException) {
@@ -48,145 +44,157 @@ class ApiService {
     }
   }
 
-  /// Try multiple API approaches to find one that works
-  static Future<String> tryMultipleApproaches(
-    String audioFilePath,
-    String language,
-  ) async {
-    // List of URLs to try
-    final urlsToTry = [
-      "https://nikjhonshon-voicecontrolledcar.hf.space/run/predict",
-      "https://huggingface.co/spaces/Nikjhonshon/VoiceControlledCar/run/predict",
-      "https://api-inference.huggingface.co/models/Nikjhonshon/VoiceControlledCar",
-      // Add the correct URL when you find it
-    ];
-
-    // For logging
-    debugPrint("Trying multiple API endpoints to find one that works");
-
-    for (var url in urlsToTry) {
-      try {
-        debugPrint("Attempting with URL: $url");
-        String result = await _submitWithUrl(url, audioFilePath, language);
-        if (!result.startsWith("Error:")) {
-          // Success! Return the successful result
-          return result;
-        }
-        // If we got an error, try the next URL
-        debugPrint("Failed with URL: $url. Trying next...");
-      } catch (e) {
-        debugPrint("Exception with URL $url: $e");
-        // Continue to next URL
-      }
-    }
-
-    // If all approaches failed
-    return "Error: Could not connect to any known API endpoint";
-  }
-
-  /// Helper to try a specific URL with appropriate payload
-  static Future<String> _submitWithUrl(
-    String url,
-    String audioFilePath,
-    String language,
-  ) async {
+  static Future<String> submitToGradioSpace({
+    required String audioFilePath,
+    required String language,
+  }) async {
     final file = File(audioFilePath);
-    if (!await file.exists()) {
-      return "Error: Audio file not found";
-    }
-
-    final bytes = await file.readAsBytes();
-
-    // Try different payload formats
+    if (!await file.exists()) return "Error: File not found";
+    final uploadId = DateTime.now().millisecondsSinceEpoch.toString();
+    final uploadUrl = _getModelUrlForLanguage(language);
+    final sessionHash = _generateRandomSessionHash();
 
     try {
-      // Approach 1: JSON with base64
-      final base64Audio = base64Encode(bytes);
-      final fileName = file.uri.pathSegments.last;
-      debugPrint("File name: $fileName");
-      final jsonResponse = await http
-          .post(
-            Uri.parse(url),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'name': fileName,
-              'data': "data:audio/wave;base64,$base64Audio",
-            }),
-          )
-          .timeout(_requestTimeout);
-
-      if (jsonResponse.statusCode == 200) {
-        // Process successful response
-        debugPrint("Success with JSON base64 approach");
-        return _processResponse(jsonResponse);
-      }
-
-      // Approach 2: Raw binary
-      final binaryResponse = await http
-          .post(
-            Uri.parse(url),
-            headers: {'Content-Type': 'audio/wav'},
-            body: bytes,
-          )
-          .timeout(_requestTimeout);
-
-      if (binaryResponse.statusCode == 200) {
-        // Process successful response
-        debugPrint("Success with raw binary approach");
-        return _processResponse(binaryResponse);
-      }
-
-      // Approach 3: Multipart
-      final request = http.MultipartRequest('POST', Uri.parse(url));
+      // STEP 1: Upload the file using multipart/form-data
+      final request = http.MultipartRequest(
+        "POST",
+        Uri.parse('$uploadUrl/upload?upload_id=$uploadId'),
+      );
       request.files.add(
-        await http.MultipartFile.fromPath('file', audioFilePath),
-      );
-      request.fields['language'] = language;
-
-      final streamedResponse = await request.send().timeout(_requestTimeout);
-      final multipartResponse = await http.Response.fromStream(
-        streamedResponse,
+        await http.MultipartFile.fromPath('files', audioFilePath),
       );
 
-      if (multipartResponse.statusCode == 200) {
-        // Process successful response
-        debugPrint("Success with multipart approach");
-        return _processResponse(multipartResponse);
+      debugPrint("Uploading file: $audioFilePath to $uploadUrl");
+
+      final uploadResponse = await request.send();
+
+      debugPrint(
+        "Uploading file: $audioFilePath to $uploadUrl/upload?upload_id=$uploadId",
+      );
+
+      if (uploadResponse.statusCode != 200) {
+        debugPrint("Upload failed with status ${uploadResponse.statusCode}");
+        return "Error: Upload failed (${uploadResponse.statusCode})";
       }
 
-      return "Error: All request formats failed with status codes: ${jsonResponse.statusCode}, ${binaryResponse.statusCode}, ${multipartResponse.statusCode}";
+      debugPrint("Upload successful, status: ${uploadResponse.statusCode}");
+
+      final responseBody = await uploadResponse.stream.bytesToString();
+      debugPrint("Upload response body: $responseBody");
+
+      final uploaded = jsonDecode(responseBody);
+      debugPrint("jsonDecode: $uploaded");
+      final uploadedPath = uploaded[0];
+
+      debugPrint("File uploaded: $uploadedPath");
+
+      final filename = path.basename(audioFilePath);
+      final mimeType = "audio/wav";
+
+      // STEP 2: Prepare query payload
+      final audioData = {
+        "path": uploadedPath,
+        "name": filename,
+        "orig_name": filename,
+        "size": await file.length(),
+        "mime_type": mimeType,
+        "url": '$uploadUrl/file=$uploadedPath',
+        "meta": {"_type": "gradio.FileData"},
+        "_type": "gradio.FileData",
+      };
+      final queuePayLoad = jsonEncode({
+        "fn_index": 2,
+        "session_hash": sessionHash,
+        "event_data": null,
+        "data": [audioData],
+      });
+
+      // STEP 3: Submit to queue
+      final client = HttpClient();
+
+      final queueRequest = await client.postUrl(
+        Uri.parse('$uploadUrl/queue/join'),
+      );
+      queueRequest.headers.set('Content-Type', 'application/json');
+      queueRequest.write(queuePayLoad);
+
+      final queueResponse = await queueRequest.close();
+      final completer = Completer<String>();
+
+      if (queueResponse.statusCode != 200) {
+        debugPrint("Join failed: ${queueResponse.statusCode} - $queueResponse");
+        return "Error: Join failed (${queueResponse.statusCode})";
+      }
+
+      // STEP 4: Poll for result
+      final dataRequest = await client.getUrl(
+        Uri.parse('$uploadUrl/queue/data?session_hash=$sessionHash'),
+      );
+      final dataResponse = await dataRequest.close();
+
+      final commandMap = {
+        "Class 0": "Backward",
+        "Class 3": "Forward",
+        "Class 5": "Left",
+        "Class 7": "Right",
+        "Class 6": "No Operation",
+      };
+
+      dataResponse
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
+            (line) {
+              debugPrint(line);
+              if (line.startsWith("data: ")) {
+                final jsonLine = line.substring(6).trim();
+                debugPrint("SSE Line: $jsonLine");
+                if (jsonLine == "PING") return;
+
+                try {
+                  final decoded = jsonDecode(jsonLine);
+                  final msg = decoded["msg"];
+                  debugPrint('Decoded message: $msg');
+                  if (msg == "process_completed") {
+                    final result =
+                        commandMap[decoded["output"]["data"][1]['label']];
+                    debugPrint("Final result: $result");
+                    completer.complete(result);
+                  } else if (msg == "queue_full" || msg == "error") {
+                    completer.complete("Error: ${decoded['error']}");
+                  } else {
+                    debugPrint("Unknown message: $msg");
+                  }
+                } catch (e) {
+                  debugPrint("Error decoding JSON: $e");
+                }
+              }
+            },
+            onError: (e) {
+              if (!completer.isCompleted) {
+                completer.complete("Error: Stream failed: $e");
+              }
+            },
+            onDone: () {
+              if (!completer.isCompleted) {
+                completer.complete("Error: Stream closed without result");
+              }
+            },
+          );
+
+      return await completer.future;
     } catch (e) {
       return "Error: Exception during request: $e";
     }
   }
 
-  /// Process a successful response
-  static String _processResponse(http.Response response) {
-    try {
-      final jsonResponse = jsonDecode(response.body);
-      debugPrint('JSON response: $jsonResponse');
-
-      String command = "";
-
-      if (jsonResponse.containsKey('data')) {
-        final data = jsonResponse['data'];
-        if (data is List && data.isNotEmpty) {
-          command = data[0].toString();
-        } else {
-          command = data.toString();
-        }
-      } else if (jsonResponse.containsKey('result')) {
-        command = jsonResponse['result'].toString();
-      } else {
-        command = jsonResponse.toString();
-      }
-
-      command = command.replaceAll('"', '').trim();
-      return command;
-    } catch (e) {
-      // If JSON parsing fails, return the raw response
-      return response.body.trim();
-    }
+  static String _generateRandomSessionHash() {
+    final rand = Random();
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    return List.generate(
+      15,
+      (index) => chars[rand.nextInt(chars.length)],
+    ).join();
   }
 
   // Helper function to limit string length

@@ -578,148 +578,154 @@ class _HomeScreenState extends State<HomeScreen>
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Audio visualizer when recording
-                  if (isRecording)
-                    AudioVisualizer(
-                      isRecording: isRecording,
-                      recordingDuration: recordingDuration,
-                    ),
-
-                  // Robot command visualization
-                  if (lastRecordedCommand.isNotEmpty && !isRecording)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 40),
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: theme.colorScheme.primary.withOpacity(0.2),
-                            blurRadius: 10,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
+              child: SingleChildScrollView(
+                physics: BouncingScrollPhysics(),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Audio visualizer when recording
+                    if (isRecording)
+                      AudioVisualizer(
+                        isRecording: isRecording,
+                        recordingDuration: recordingDuration,
                       ),
-                      child: Column(
-                        children: [
-                          Text(
-                            'Last Command:',
-                            style: theme.textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 10),
-                          SelectableText(
-                            lastRecordedCommand.toUpperCase(),
-                            style: theme.textTheme.headlineMedium?.copyWith(
-                              color: theme.colorScheme.primary,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          Icon(
-                            _getCommandIcon(lastRecordedCommand),
-                            color: theme.colorScheme.primary,
-                            size: 50,
-                          ),
-                        ],
-                      ),
-                    ),
 
-                  const SizedBox(height: 20),
-
-                  // Recording controls - simplified to only voice controls
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // Cancel button (when recording)
-                      if (isRecording)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 32.0),
-                          child: IconButton.filled(
-                            onPressed: _cancelRecording,
-                            icon: const Icon(Icons.cancel),
-                            color: Colors.white,
-                            style: IconButton.styleFrom(
-                              backgroundColor: Colors.red,
-                              minimumSize: const Size(60, 60),
+                    // Robot command visualization
+                    if (lastRecordedCommand.isNotEmpty && !isRecording)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 40),
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface,
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: theme.colorScheme.primary.withOpacity(0.2),
+                              blurRadius: 10,
+                              offset: const Offset(0, 5),
                             ),
-                          ),
+                          ],
                         ),
-
-                      // Record/Stop button
-                      ScaleTransition(
-                        scale: _pulseAnimation,
-                        child: InkWell(
-                          onTap: isProcessing ? null : toggleRecording,
-                          child: Container(
-                            width: 100,
-                            height: 100,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color:
-                                  isRecording
-                                      ? Colors.red
-                                      : theme.colorScheme.primary,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: (isRecording
-                                          ? Colors.red
-                                          : theme.colorScheme.primary)
-                                      .withOpacity(0.5),
-                                  blurRadius: 20,
-                                  spreadRadius: 5,
-                                ),
-                              ],
+                        child: Column(
+                          children: [
+                            Text(
+                              'Last Command:',
+                              style: theme.textTheme.titleMedium,
                             ),
-                            child: Icon(
-                              isRecording ? Icons.stop : Icons.mic,
-                              color: Colors.white,
-                              size: 40,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 20),
-                  Text(
-                    isRecording
-                        ? 'Tap to stop recording'
-                        : 'Tap to record voice command',
-                    style: theme.textTheme.bodyLarge,
-                  ),
-
-                  if (!isRecording && AudioRecorderService.isMockRecording)
-                    Container(
-                      margin: const EdgeInsets.only(top: 16),
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.orange),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.warning_amber, color: Colors.orange),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              'Using mock recordings - tap "Microphone Diagnostics" icon to troubleshoot',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: Colors.orange[800],
+                            const SizedBox(height: 10),
+                            SelectableText(
+                              lastRecordedCommand.toUpperCase(),
+                              style: theme.textTheme.headlineMedium?.copyWith(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.bold,
                               ),
-                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 20),
+                            Icon(
+                              _getCommandIcon(lastRecordedCommand),
+                              color: theme.colorScheme.primary,
+                              size: 50,
+                            ),
+                          ],
+                        ),
+                      ),
+
+                    const SizedBox(height: 20),
+
+                    // Recording controls - simplified to only voice controls
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // Cancel button (when recording)
+                        if (isRecording)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 32.0),
+                            child: IconButton.filled(
+                              onPressed: _cancelRecording,
+                              icon: const Icon(Icons.cancel),
+                              color: Colors.white,
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                minimumSize: const Size(60, 60),
+                              ),
                             ),
                           ),
-                        ],
-                      ),
+
+                        // Record/Stop button
+                        ScaleTransition(
+                          scale: _pulseAnimation,
+                          child: InkWell(
+                            onTap: isProcessing ? null : toggleRecording,
+                            child: Container(
+                              width: 100,
+                              height: 100,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color:
+                                    isRecording
+                                        ? Colors.red
+                                        : theme.colorScheme.primary,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: (isRecording
+                                            ? Colors.red
+                                            : theme.colorScheme.primary)
+                                        .withOpacity(0.5),
+                                    blurRadius: 20,
+                                    spreadRadius: 5,
+                                  ),
+                                ],
+                              ),
+                              child: Icon(
+                                isRecording ? Icons.stop : Icons.mic,
+                                color: Colors.white,
+                                size: 40,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                ],
+
+                    const SizedBox(height: 20),
+                    Text(
+                      isRecording
+                          ? 'Tap to stop recording'
+                          : 'Tap to record voice command',
+                      style: theme.textTheme.bodyLarge,
+                    ),
+
+                    if (!isRecording && AudioRecorderService.isMockRecording)
+                      Container(
+                        margin: const EdgeInsets.only(top: 16),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.warning_amber,
+                              color: Colors.orange,
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                'Using mock recordings - tap "Microphone Diagnostics" icon to troubleshoot',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: Colors.orange[800],
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
