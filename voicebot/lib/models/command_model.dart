@@ -9,7 +9,7 @@ class Command {
   factory Command.fromString(String text) {
     final lowercaseText = text.toLowerCase().trim();
 
-    if (lowercaseText.contains('forward') || lowercaseText.contains('ahead')) {
+    if (lowercaseText.contains('forward')) {
       return Command(type: CommandType.forward, rawText: text);
     } else if (lowercaseText.contains('backward') ||
         lowercaseText.contains('back')) {

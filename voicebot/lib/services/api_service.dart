@@ -31,7 +31,7 @@ class ApiService {
         'Processing audio file: $audioFilePath with language: $language',
       );
 
-      return await submitToGradioSpace(
+      return await _submitToGradioSpace(
         audioFilePath: audioFilePath,
         language: language,
       );
@@ -44,7 +44,7 @@ class ApiService {
     }
   }
 
-  static Future<String> submitToGradioSpace({
+  static Future<String> _submitToGradioSpace({
     required String audioFilePath,
     required String language,
   }) async {
@@ -156,8 +156,8 @@ class ApiService {
                   final msg = decoded["msg"];
                   debugPrint('Decoded message: $msg');
                   if (msg == "process_completed") {
-                    final result =
-                        commandMap[decoded["output"]["data"][1]['label']];
+                    final label = decoded["output"]["data"][1]['label'];
+                    final result = commandMap[label];
                     debugPrint("Final result: $result");
                     completer.complete(result);
                   } else if (msg == "queue_full" || msg == "error") {

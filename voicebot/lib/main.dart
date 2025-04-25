@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'screens/splash_screen.dart';
+import 'screens/esp32_test_screen.dart'; // Import the ESP32 test screen
 import 'core/theme.dart';
 import 'providers/app_state.dart';
 
@@ -61,6 +62,7 @@ class _VoiceControlAppState extends State<VoiceControlApp> {
           themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
           home: const SplashScreen(),
           debugShowCheckedModeBanner: false,
+          routes: {'/esp32_test': (context) => const ESP32TestScreen()},
         );
       },
     );

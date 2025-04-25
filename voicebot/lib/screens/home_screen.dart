@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'dart:io'; // Added for Platform check
 import '../services/audio_recorder.dart';
 import '../services/api_service.dart';
 import '../services/bluetooth_service.dart';
-import '../models/command_model.dart';
+import '../services/bluetooth_service/bluetooth_service_interface.dart';
 import '../providers/app_state.dart';
 import '../widgets/audio_visualizer.dart';
 import 'settings_screen.dart';
-import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -722,6 +722,22 @@ class _HomeScreenState extends State<HomeScreen>
                               ),
                             ),
                           ],
+                        ),
+                      ),
+
+                    // Add ESP32 test option for Windows platform
+                    if (Platform.isWindows)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16.0),
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.developer_board),
+                          label: const Text('ESP32 Bluetooth Test'),
+                          onPressed:
+                              () => Navigator.pushNamed(context, '/esp32_test'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.deepPurple,
+                            foregroundColor: Colors.white,
+                          ),
                         ),
                       ),
                   ],
