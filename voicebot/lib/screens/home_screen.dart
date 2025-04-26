@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'dart:io'; // Added for Platform check
 import '../services/audio_recorder.dart';
 import '../services/api_service.dart';
-import '../services/bluetooth_service.dart';
-import '../services/bluetooth_service/bluetooth_service_interface.dart';
+import '../services/esp32_wifi_service.dart';
 import '../providers/app_state.dart';
 import '../widgets/audio_visualizer.dart';
 import 'settings_screen.dart';
@@ -25,7 +23,6 @@ class _HomeScreenState extends State<HomeScreen>
   String statusMessage = 'Ready to record';
   String lastRecordedCommand = '';
   bool isProcessing = false;
-  List<BluetoothDiscoveryResult> devices = [];
   bool isScanning = false;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -36,6 +33,12 @@ class _HomeScreenState extends State<HomeScreen>
   StreamSubscription? _recorderSubscription;
   double currentVolume = 0;
   String _debugInfo = ''; // For showing if recording is real or mock
+
+  // ESP32 WiFi service
+  final ESP32WiFiService _wifiService = ESP32WiFiService();
+  bool _isConnectedToESP32 = false;
+  String _esp32IpAddress = '';
+  StreamSubscription? _dataStreamSubscription;
 
   // Microphone diagnostics state
   bool _showDiagnostics = false;
@@ -70,13 +73,36 @@ class _HomeScreenState extends State<HomeScreen>
                 : 'Microphone permission required';
       });
 
-      // Initialize Bluetooth
-      _initBluetooth();
+      // Initialize ESP32 WiFi
+      _checkConnectionStatus();
     } catch (e) {
       setState(() {
         statusMessage = 'Error initializing: $e';
       });
     }
+  }
+
+  Future<void> _checkConnectionStatus() async {
+    await _wifiService.init();
+    setState(() {
+      _isConnectedToESP32 = _wifiService.isConnected;
+      _esp32IpAddress = _wifiService.espIpAddress;
+      statusMessage =
+          _isConnectedToESP32
+              ? 'Connected to ESP32 at $_esp32IpAddress. Ready to record.'
+              : 'WiFi enabled. Ready to record.';
+    });
+
+    // Setup data listener for ESP32 responses
+    _dataStreamSubscription?.cancel();
+    _dataStreamSubscription = _wifiService.dataStream.listen((message) {
+      setState(() {
+        statusMessage = 'ESP32 response: $message';
+      });
+    });
+
+    // Update app state
+    appState.setRobotConnection(_isConnectedToESP32);
   }
 
   // Run microphone diagnostics
@@ -108,73 +134,43 @@ class _HomeScreenState extends State<HomeScreen>
     _pulseController.dispose();
     _recorderSubscription?.cancel();
     _recordingTimer?.cancel();
+    _dataStreamSubscription?.cancel();
     AudioRecorderService.dispose();
-    BluetoothService.stopDiscovery();
+    _wifiService.dispose();
     super.dispose();
   }
 
-  Future<void> _initBluetooth() async {
+  void _scanForESP32Devices() async {
+    setState(() {
+      isScanning = true;
+      statusMessage = 'Scanning for ESP32 devices...';
+    });
+
     try {
-      final isEnabled = await BluetoothService.initBluetooth();
-      if (isEnabled) {
+      // Navigate to ESP32 connection screen
+      final result = await Navigator.pushNamed(context, '/esp32_connection');
+
+      // Check if connection was successful
+      if (result == true) {
         setState(() {
-          statusMessage = 'Bluetooth enabled. Ready to record.';
+          _isConnectedToESP32 = _wifiService.isConnected;
+          _esp32IpAddress = _wifiService.espIpAddress;
+          statusMessage = 'Connected to ESP32 at $_esp32IpAddress';
         });
+        appState.setRobotConnection(_isConnectedToESP32);
       } else {
         setState(() {
-          statusMessage = 'Bluetooth disabled. Voice commands only.';
+          statusMessage = 'ESP32 connection canceled';
         });
       }
     } catch (e) {
-      debugPrint('Bluetooth error: $e');
-    }
-  }
-
-  void _scanForDevices() {
-    setState(() {
-      isScanning = true;
-      devices.clear();
-      statusMessage = 'Scanning for devices...';
-    });
-
-    BluetoothService.startDiscovery((foundDevices) {
       setState(() {
-        devices = foundDevices.toList();
+        statusMessage = 'Error scanning for ESP32 devices: $e';
       });
-    });
-
-    // Stop scanning after 30 seconds
-    Timer(const Duration(seconds: 30), () {
-      if (mounted) {
-        setState(() {
-          isScanning = false;
-          statusMessage =
-              devices.isEmpty
-                  ? 'No devices found'
-                  : 'Found ${devices.length} devices';
-        });
-        BluetoothService.stopDiscovery();
-      }
-    });
-  }
-
-  Future<void> _connectToDevice(BluetoothDevice device) async {
-    setState(() {
-      statusMessage = 'Connecting to ${device.name}...';
-    });
-
-    final isConnected = await BluetoothService.connectToDevice(device);
-
-    if (isConnected) {
+    } finally {
       setState(() {
-        statusMessage = 'Connected to ${device.name}';
+        isScanning = false;
       });
-      appState.setRobotConnection(true);
-    } else {
-      setState(() {
-        statusMessage = 'Failed to connect to ${device.name}';
-      });
-      appState.setRobotConnection(false);
     }
   }
 
@@ -271,16 +267,16 @@ class _HomeScreenState extends State<HomeScreen>
 
           appState.setLastCommand(action);
 
-          // Send command to the robot if connected
-          if (BluetoothService.isConnected) {
-            final sent = await BluetoothService.sendCommand(action);
+          // Send command to the ESP32 if connected
+          if (_isConnectedToESP32) {
+            final sent = await _wifiService.sendCommand(action);
             if (sent) {
               setState(() {
-                statusMessage = 'Command sent to robot: $action';
+                statusMessage = 'Command sent to ESP32: $action';
               });
             } else {
               setState(() {
-                statusMessage = 'Failed to send command to robot';
+                statusMessage = 'Failed to send command to ESP32';
               });
             }
           }
@@ -475,9 +471,7 @@ class _HomeScreenState extends State<HomeScreen>
                         Row(
                           children: [
                             Icon(
-                              isConnected
-                                  ? Icons.bluetooth_connected
-                                  : Icons.bluetooth_disabled,
+                              isConnected ? Icons.wifi : Icons.wifi_off,
                               color:
                                   isConnected
                                       ? theme.colorScheme.primary
@@ -486,8 +480,8 @@ class _HomeScreenState extends State<HomeScreen>
                             const SizedBox(width: 8),
                             Text(
                               isConnected
-                                  ? 'Robot Connected'
-                                  : 'Robot Disconnected',
+                                  ? 'ESP32 Connected'
+                                  : 'ESP32 Disconnected',
                               style: theme.textTheme.bodyMedium,
                             ),
                           ],
@@ -725,21 +719,20 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                       ),
 
-                    // Add ESP32 test option for Windows platform
-                    if (Platform.isWindows)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16.0),
-                        child: ElevatedButton.icon(
-                          icon: const Icon(Icons.developer_board),
-                          label: const Text('ESP32 Bluetooth Test'),
-                          onPressed:
-                              () => Navigator.pushNamed(context, '/esp32_test'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.deepPurple,
-                            foregroundColor: Colors.white,
-                          ),
+                    // Add ESP32 test option for development
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16.0, top: 16.0),
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.developer_board),
+                        label: const Text('ESP32 WiFi Test'),
+                        onPressed:
+                            () => Navigator.pushNamed(context, '/esp32_test'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          foregroundColor: Colors.white,
                         ),
                       ),
+                    ),
                   ],
                 ),
               ),
@@ -751,13 +744,10 @@ class _HomeScreenState extends State<HomeScreen>
           isRecording
               ? null
               : FloatingActionButton(
-                onPressed: isScanning ? null : _scanForDevices,
-                tooltip: 'Connect to Robot',
-                child: Icon(
-                  isScanning ? Icons.bluetooth_searching : Icons.bluetooth,
-                ),
+                onPressed: isScanning ? null : _scanForESP32Devices,
+                tooltip: 'Connect to ESP32',
+                child: Icon(isScanning ? Icons.wifi_find : Icons.wifi),
               ),
-      bottomSheet: devices.isNotEmpty ? _buildDeviceList() : null,
     );
   }
 
@@ -871,67 +861,6 @@ class _HomeScreenState extends State<HomeScreen>
             )
             .toList(),
       ],
-    );
-  }
-
-  Widget _buildDeviceList() {
-    return Container(
-      height: 200,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(20),
-          topRight: Radius.circular(20),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, -5),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Available Devices',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () {
-                  setState(() {
-                    devices.clear();
-                  });
-                },
-              ),
-            ],
-          ),
-          const Divider(),
-          Expanded(
-            child: ListView.builder(
-              itemCount: devices.length,
-              itemBuilder: (context, index) {
-                final device = devices[index].device;
-                return ListTile(
-                  leading: const Icon(Icons.bluetooth),
-                  title: Text(device.name ?? 'Unknown Device'),
-                  subtitle: Text(device.address),
-                  trailing: ElevatedButton(
-                    onPressed: () => _connectToDevice(device),
-                    child: const Text('Connect'),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
     );
   }
 

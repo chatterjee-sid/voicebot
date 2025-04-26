@@ -1,69 +1,72 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'screens/splash_screen.dart';
-import 'screens/esp32_test_screen.dart'; // Import the ESP32 test screen
 import 'core/theme.dart';
 import 'providers/app_state.dart';
+import 'screens/splash_screen.dart';
+import 'screens/home_screen.dart';
+import 'screens/robot_control_screen.dart';
+import 'screens/settings_screen.dart';
+import 'screens/esp32_connection_screen.dart';
+import 'screens/esp32_test_screen.dart';
 
-// Global flag to quickly identify if we're running on Windows
-// NOTE: Audio recording should now work on Windows with the updated implementation
-final bool isRunningOnWindows = Platform.isWindows;
+// Global instance of AppState for use throughout the app
+final appState = AppState();
 
-void main() {
+void main() async {
+  // Ensure Flutter is initialized
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Set preferred orientations (not needed for Windows, but kept for mobile)
-  if (!isRunningOnWindows) {
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-    ]);
+  // Force portrait orientation
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
 
-    // Set system UI overlay style
-    SystemChrome.setSystemUIOverlayStyle(
-      const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.light,
-      ),
-    );
-  }
-
-  // Show a platform-specific message indicating Windows support
-  if (isRunningOnWindows) {
-    debugPrint('Running on Windows - audio recording should now be supported');
-  }
-
-  runApp(const VoiceControlApp());
+  runApp(const MyApp());
 }
 
-class VoiceControlApp extends StatefulWidget {
-  const VoiceControlApp({super.key});
+class MyApp extends StatefulWidget {
+  const MyApp({super.key});
 
   @override
-  State<VoiceControlApp> createState() => _VoiceControlAppState();
+  State<MyApp> createState() => _MyAppState();
 }
 
-class _VoiceControlAppState extends State<VoiceControlApp> {
-  // Get the single instance of AppState
-  final appState = AppState();
+class _MyAppState extends State<MyApp> {
+  @override
+  void initState() {
+    super.initState();
+    // Listen to changes in the dark mode setting and refresh the UI
+    appState.addListener(_refreshUI);
+  }
+
+  @override
+  void dispose() {
+    appState.removeListener(_refreshUI);
+    super.dispose();
+  }
+
+  void _refreshUI() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Use ValueListenableBuilder to rebuild when isDarkMode changes
-    return ValueListenableBuilder<bool>(
-      valueListenable: appState.isDarkMode,
-      builder: (context, isDarkMode, child) {
-        return MaterialApp(
-          title: 'Voice-Controlled Robot',
-          theme: AppTheme.lightTheme,
-          darkTheme: AppTheme.darkTheme,
-          // Always use dark theme by default
-          themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
-          home: const SplashScreen(),
-          debugShowCheckedModeBanner: false,
-          routes: {'/esp32_test': (context) => const ESP32TestScreen()},
-        );
+    return MaterialApp(
+      title: 'Voice-Controlled Robot',
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: appState.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+      initialRoute: '/',
+      routes: {
+        '/': (context) => const SplashScreen(),
+        '/home': (context) => const HomeScreen(),
+        '/robot_control': (context) => const RobotControlScreen(),
+        '/settings': (context) => const SettingsScreen(),
+        '/esp32_connection': (context) => const ESP32ConnectionScreen(),
+        '/esp32_test': (context) => const ESP32TestScreen(),
       },
     );
   }

@@ -9,11 +9,30 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final AppState appState = AppState();
+  // Using the global instance from main.dart
+  final appState = AppState();
+
+  @override
+  void initState() {
+    super.initState();
+    // Listen to AppState changes to refresh UI when needed
+    appState.addListener(_refreshUI);
+  }
+
+  @override
+  void dispose() {
+    appState.removeListener(_refreshUI);
+    super.dispose();
+  }
+
+  void _refreshUI() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Variable is now used in the build method
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -49,6 +68,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 },
                               );
                             }).toList(),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16.0),
+
+          // Appearance settings
+          Card(
+            elevation: 2.0,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Appearance', style: theme.textTheme.titleLarge),
+                  const SizedBox(height: 16.0),
+                  SwitchListTile(
+                    title: const Text('Dark Mode'),
+                    subtitle: const Text('Use dark theme throughout the app'),
+                    value: appState.isDarkMode,
+                    onChanged: (value) {
+                      appState.setDarkMode(value);
+                    },
+                  ),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: appState.showDebugInfo,
+                    builder: (context, showDebug, child) {
+                      return SwitchListTile(
+                        title: const Text('Show Debug Info'),
+                        subtitle: const Text('Display technical information'),
+                        value: showDebug,
+                        onChanged: (value) {
+                          appState.setDebugInfoVisibility(value);
+                        },
                       );
                     },
                   ),

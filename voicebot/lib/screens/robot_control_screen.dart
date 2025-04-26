@@ -4,10 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../services/api_service.dart';
-import '../services/bluetooth_service.dart';
-import '../services/bluetooth_service/bluetooth_service_interface.dart';
+import '../services/esp32_wifi_service.dart';
 import '../services/audio_recorder.dart';
-import 'bluetooth_device_selection_screen.dart';
 
 class RobotControlScreen extends StatefulWidget {
   const RobotControlScreen({super.key});
@@ -25,13 +23,16 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
   bool _isConnected = false;
   String _connectedDeviceName = 'No device connected';
   Timer? _recordingTimer;
+  final ESP32WiFiService _wifiService = ESP32WiFiService();
+  StreamSubscription? _dataSubscription;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
     _checkPermissions();
-    _initBluetooth();
+    _initESP32Connection();
+    _setupDataListener();
   }
 
   Future<void> _loadSettings() async {
@@ -45,22 +46,40 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
     await AudioRecorderService.checkMicrophonePermission();
   }
 
-  Future<void> _initBluetooth() async {
+  void _setupDataListener() {
+    _dataSubscription?.cancel();
+    _dataSubscription = _wifiService.dataStream.listen((message) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Robot responded: $message'),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
+    });
+  }
+
+  Future<void> _initESP32Connection() async {
     try {
-      final bool isEnabled = await BluetoothService.initBluetooth();
+      final bool isEnabled = await _wifiService.init();
 
       if (!isEnabled && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Bluetooth is not enabled. Please enable Bluetooth.'),
+            content: Text(
+              'Not connected to any ESP32. Please connect to control the robot.',
+            ),
           ),
         );
       }
 
       setState(() {
-        _isConnected = BluetoothService.isConnected;
+        _isConnected = _wifiService.isConnected;
         _connectedDeviceName =
-            _isConnected ? 'Connected Device' : 'No device connected';
+            _isConnected
+                ? 'Connected to ${_wifiService.espIpAddress}'
+                : 'No device connected';
       });
     } catch (e) {
       setState(() {
@@ -69,48 +88,68 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to initialize Bluetooth: ${e.toString()}'),
+            content: Text('Failed to initialize connection: ${e.toString()}'),
           ),
         );
       }
     }
   }
 
-  Future<void> _selectBluetoothDevice() async {
+  Future<void> _connectToESP32() async {
     try {
-      // Navigate to Bluetooth device selection screen using a direct route
-      // instead of a named route that might not be defined
-      final result = await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const BluetoothDeviceSelectionScreen(),
-        ),
-      );
+      // Navigate to ESP32 connection screen
+      final result = await Navigator.pushNamed(context, '/esp32_connection');
 
-      // Check if result is a BluetoothDevice before processing
-      if (result != null && result is BluetoothDevice) {
-        // Connect to the selected device
-        final BluetoothDevice device = result;
-        final isConnected = await BluetoothService.connectToDevice(device);
-
+      // Check if connection was successful
+      if (result == true) {
         setState(() {
-          _isConnected = isConnected;
-          _connectedDeviceName =
-              isConnected
-                  ? device.name ?? 'Connected Device'
-                  : 'No device connected';
+          _isConnected = _wifiService.isConnected;
+          _connectedDeviceName = 'Connected to ${_wifiService.espIpAddress}';
         });
 
         if (_isConnected && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Connected to $_connectedDeviceName')),
+            SnackBar(
+              content: Text(
+                'Connected to ESP32 at ${_wifiService.espIpAddress}',
+              ),
+            ),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error selecting device: ${e.toString()}')),
+          SnackBar(content: Text('Error connecting to ESP32: ${e.toString()}')),
+        );
+      }
+    }
+  }
+
+  Future<void> _disconnectFromESP32() async {
+    try {
+      // Call the disconnect method from ESP32WiFiService
+      _wifiService.disconnect();
+
+      setState(() {
+        _isConnected = false;
+        _connectedDeviceName = 'No device connected';
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Disconnected from ESP32'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error disconnecting from ESP32: ${e.toString()}'),
+          ),
         );
       }
     }
@@ -224,7 +263,7 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
       });
 
       if (_isConnected) {
-        await _sendCommandToRobot(command);
+        await _sendCommandToESP32(command);
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -233,7 +272,7 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
             ),
             action: SnackBarAction(
               label: 'CONNECT',
-              onPressed: () => _selectBluetoothDevice(),
+              onPressed: () => _connectToESP32(),
             ),
           ),
         );
@@ -246,15 +285,18 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
     }
   }
 
-  Future<void> _sendCommandToRobot(String command) async {
+  Future<void> _sendCommandToESP32(String command) async {
     try {
-      final bool result = await BluetoothService.sendCommand(command);
+      // Convert full word commands to single character commands
+      String formattedCommand = _wifiService.mapCommandToESP32Format(command);
+
+      final bool result = await _wifiService.sendCommand(formattedCommand);
 
       if (result) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Command sent: $command'),
+              content: Text('Command sent: $command (as $formattedCommand)'),
               backgroundColor: Colors.green,
               duration: const Duration(seconds: 1),
             ),
@@ -273,24 +315,6 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
           );
         }
       }
-
-      // Listen for any response from the ESP32
-      if (BluetoothService.dataStream != null && mounted) {
-        BluetoothService.dataStream!
-            .listen((response) {
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Robot responded: $response'),
-                    backgroundColor: Colors.blue,
-                  ),
-                );
-              }
-            })
-            .onDone(() {
-              debugPrint('Response stream closed');
-            });
-      }
     } catch (e) {
       setState(() {
         _isConnected = false;
@@ -306,6 +330,7 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
   @override
   void dispose() {
     _recordingTimer?.cancel();
+    _dataSubscription?.cancel();
     AudioRecorderService.dispose();
     super.dispose();
   }
@@ -317,19 +342,17 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
         title: const Text('Robot Control'),
         centerTitle: true,
         actions: [
-          IconButton(
-            icon: Icon(
-              _isConnected
-                  ? Icons.bluetooth_connected
-                  : Icons.bluetooth_disabled,
-              color: _isConnected ? Colors.green : Colors.red,
-            ),
-            onPressed: _selectBluetoothDevice,
-            tooltip:
-                _isConnected
-                    ? 'Connected to $_connectedDeviceName'
-                    : 'Connect to robot',
-          ),
+          _isConnected
+              ? IconButton(
+                icon: const Icon(Icons.link_off, color: Colors.orange),
+                onPressed: _disconnectFromESP32,
+                tooltip: 'Disconnect from ESP32',
+              )
+              : IconButton(
+                icon: const Icon(Icons.wifi_find, color: Colors.green),
+                onPressed: _connectToESP32,
+                tooltip: 'Connect to ESP32',
+              ),
         ],
       ),
       body: Padding(
@@ -376,9 +399,7 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          _isConnected
-                              ? Icons.bluetooth_connected
-                              : Icons.bluetooth_disabled,
+                          _isConnected ? Icons.wifi : Icons.wifi_off,
                           size: 20,
                           color: _isConnected ? Colors.green : Colors.red,
                         ),
@@ -525,7 +546,7 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           ElevatedButton(
-                            onPressed: () => _sendCommandToRobot('Forward'),
+                            onPressed: () => _sendCommandToESP32('Forward'),
                             child: const Icon(Icons.arrow_upward),
                           ),
                         ],
@@ -535,12 +556,12 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           ElevatedButton(
-                            onPressed: () => _sendCommandToRobot('Left'),
+                            onPressed: () => _sendCommandToESP32('Left'),
                             child: const Icon(Icons.arrow_back),
                           ),
                           const SizedBox(width: 16),
                           ElevatedButton(
-                            onPressed: () => _sendCommandToRobot('Stop'),
+                            onPressed: () => _sendCommandToESP32('Stop'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.red,
                               foregroundColor: Colors.white,
@@ -549,7 +570,7 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
                           ),
                           const SizedBox(width: 16),
                           ElevatedButton(
-                            onPressed: () => _sendCommandToRobot('Right'),
+                            onPressed: () => _sendCommandToESP32('Right'),
                             child: const Icon(Icons.arrow_forward),
                           ),
                         ],
@@ -559,10 +580,20 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           ElevatedButton(
-                            onPressed: () => _sendCommandToRobot('Backward'),
+                            onPressed: () => _sendCommandToESP32('Backward'),
                             child: const Icon(Icons.arrow_downward),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: _disconnectFromESP32,
+                        icon: const Icon(Icons.wifi_off),
+                        label: const Text('DISCONNECT'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          foregroundColor: Colors.white,
+                        ),
                       ),
                     ],
                   ),
@@ -571,9 +602,9 @@ class _RobotControlScreenState extends State<RobotControlScreen> {
 
             if (!_isConnected)
               ElevatedButton.icon(
-                onPressed: _selectBluetoothDevice,
-                icon: const Icon(Icons.bluetooth_searching),
-                label: const Text('CONNECT TO ROBOT'),
+                onPressed: _connectToESP32,
+                icon: const Icon(Icons.wifi_find),
+                label: const Text('CONNECT TO ESP32'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Theme.of(context).colorScheme.primary,
                   foregroundColor: Theme.of(context).colorScheme.onPrimary,

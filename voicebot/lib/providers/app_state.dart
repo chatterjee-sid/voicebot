@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Singleton pattern for global app state
-class AppState {
+class AppState extends ChangeNotifier {
   // Singleton instance
   static final AppState _instance = AppState._internal();
 
@@ -20,7 +20,8 @@ class AppState {
   );
 
   // Dark mode setting - default to true for dark theme
-  final ValueNotifier<bool> isDarkMode = ValueNotifier(true);
+  bool _isDarkMode = true;
+  bool get isDarkMode => _isDarkMode;
 
   // Debug mode setting
   final ValueNotifier<bool> showDebugInfo = ValueNotifier(false);
@@ -46,10 +47,13 @@ class AppState {
       }
 
       // Load dark mode setting, default to true if not set
-      isDarkMode.value = prefs.getBool('darkMode') ?? true;
+      _isDarkMode = prefs.getBool('darkMode') ?? true;
 
       // Load debug info setting
       showDebugInfo.value = prefs.getBool('showDebugInfo') ?? false;
+
+      // Notify listeners after loading settings
+      notifyListeners();
     } catch (e) {
       debugPrint('Error loading settings: $e');
     }
@@ -69,7 +73,8 @@ class AppState {
 
   // Set dark mode and save to shared preferences
   Future<void> setDarkMode(bool value) async {
-    isDarkMode.value = value;
+    _isDarkMode = value;
+    notifyListeners();
 
     try {
       final prefs = await SharedPreferences.getInstance();
