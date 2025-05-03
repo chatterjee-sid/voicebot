@@ -190,7 +190,7 @@ class _ESP32TestScreenState extends State<ESP32TestScreen> {
                       child: CustomButton(
                         text: 'Forward',
                         onPressed:
-                            _isSending ? null : () => _sendCommand('forward'),
+                            _isSending ? null : () => _sendCommand('Forward'),
                         icon: Icons.arrow_upward,
                       ),
                     ),
@@ -199,7 +199,7 @@ class _ESP32TestScreenState extends State<ESP32TestScreen> {
                       child: CustomButton(
                         text: 'Backward',
                         onPressed:
-                            _isSending ? null : () => _sendCommand('backward'),
+                            _isSending ? null : () => _sendCommand('Backward'),
                         icon: Icons.arrow_downward,
                       ),
                     ),
@@ -213,7 +213,7 @@ class _ESP32TestScreenState extends State<ESP32TestScreen> {
                       child: CustomButton(
                         text: 'Left',
                         onPressed:
-                            _isSending ? null : () => _sendCommand('left'),
+                            _isSending ? null : () => _sendCommand('Left'),
                         icon: Icons.arrow_back,
                       ),
                     ),
@@ -222,7 +222,7 @@ class _ESP32TestScreenState extends State<ESP32TestScreen> {
                       child: CustomButton(
                         text: 'Right',
                         onPressed:
-                            _isSending ? null : () => _sendCommand('right'),
+                            _isSending ? null : () => _sendCommand('Right'),
                         icon: Icons.arrow_forward,
                       ),
                     ),
@@ -231,7 +231,7 @@ class _ESP32TestScreenState extends State<ESP32TestScreen> {
                 const SizedBox(height: 8),
                 CustomButton(
                   text: 'STOP',
-                  onPressed: _isSending ? null : () => _sendCommand('stop'),
+                  onPressed: _isSending ? null : () => _sendCommand('Stop'),
                   icon: Icons.stop_circle,
                   backgroundColor: Colors.red,
                   textColor: Colors.white,
@@ -244,7 +244,7 @@ class _ESP32TestScreenState extends State<ESP32TestScreen> {
                       child: CustomButton(
                         text: 'Status',
                         onPressed:
-                            _isSending ? null : () => _sendCommand('status'),
+                            _isSending ? null : () => _sendCommand('Status'),
                         icon: Icons.info_outline,
                       ),
                     ),
