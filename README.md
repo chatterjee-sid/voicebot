@@ -7,7 +7,7 @@ This particular repository contains the files used to create the Application Int
 
 ## How to use
 In simple terms, this is how you can use this project.
-1. Extract VoiceBot.zip and run voicebot.exe on your computer (should work in a Windows environment)
+1. Extract [VoiceBot.zip](https://github.com/chatterjee-sid/voicebot/blob/main/VoiceBot.zip) and run voicebot.exe on your computer (should work in a Windows environment)
 2. Make sure that your PC hotspot name and password matches what's coded in ESP32.
 3. Once the application opens, click on the wifi button at bottom right corner, and click on scan devices.
 4. Click on the ESP32 option when it is shown on the screen. Make sure that enough power is being provided to ESP32. You will need atleast 10-11 V of potential difference in your battery source.
@@ -33,7 +33,7 @@ Approximately, 8 out of every 10 commands you give will be reflected correctly
 - Embedded C (ESP32 Programming)
 
 ## Everything Else About This Project
-You can find a PPT regarding our project in this repository. Here is the [added explanation](https://youtu.be/wJW6Bu-QPoQ).
+You can find a [PPT](https://github.com/chatterjee-sid/voicebot/blob/main/presentation.pptx) regarding our project in this repository. Here is the [added explanation](https://youtu.be/wJW6Bu-QPoQ).
 
 ## Members behind the scenes
 - [Naishadh Rana (U23CS014)](https://github.com/Zenith1009)
