@@ -1,0 +1,17 @@
+﻿=================
+Begin Activation Context Generation.
+Input Parameter:
+	Flags = 0
+	ProcessorArchitecture = AMD64
+	CultureFallBacks = en-GB;en;en-US
+	ManifestPath = C:\Users\sidca\Downloads\AppDev\voicebot\build\windows\x64\runner\Debug\voicebot.exe
+	AssemblyDirectory = C:\Users\sidca\Downloads\AppDev\voicebot\build\windows\x64\runner\Debug\
+	Application Config File = 
+-----------------
+INFO: Parsing Manifest File C:\Users\sidca\Downloads\AppDev\voicebot\build\windows\x64\runner\Debug\voicebot.exe.
+	INFO: Manifest Definition Identity is VoiceBot.app,processorArchitecture="&#x2a;",type="win32",version="1.0.0.0".
+	INFO: Reference: Microsoft.Windows.Common-Controls,language="&#x2a;",processorArchitecture="&#x2a;",publicKeyToken="6595b64144ccf1df",type="win32",version="6.0.0.0"
+	ERROR: Line 2: The element capabilities appears as a child of element urn:schemas-microsoft-com:asm.v1^assembly which is not supported by this version of Windows.
+ERROR: Activation Context generation failed.
+End Activation Context Generation.
+
